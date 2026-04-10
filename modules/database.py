@@ -1,0 +1,322 @@
+"""
+Expense Tracker — SQLite Database Layer
+Handles all database operations: CRUD, analytics queries, migration.
+"""
+
+import sqlite3
+import os
+import csv
+from datetime import datetime, timedelta
+from config import DB_PATH, OLD_CSV_PATH, DATE_FORMAT
+
+
+class ExpenseDB:
+    """SQLite database manager for expense data."""
+
+    def __init__(self):
+        """Initialize DB connection and create tables if needed."""
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        self.conn = sqlite3.connect(DB_PATH)
+        self.conn.row_factory = sqlite3.Row
+        self.create_tables()
+        self._migrate_csv_if_needed()
+
+    def create_tables(self):
+        """Create expenses and settings tables."""
+        cursor = self.conn.cursor()
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                amount REAL NOT NULL,
+                category TEXT NOT NULL,
+                date TEXT NOT NULL,
+                note TEXT DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+
+        self.conn.commit()
+
+    # ─── CRUD Operations ──────────────────────────────────────
+
+    def add_expense(self, amount, category, date, note=""):
+        """Add a new expense to the database."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT INTO expenses (amount, category, date, note) VALUES (?, ?, ?, ?)",
+            (float(amount), category, date, note),
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def get_all_expenses(self):
+        """Get all expenses ordered by date descending."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM expenses ORDER BY date DESC, id DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_expense_by_id(self, expense_id):
+        """Get a single expense by ID."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM expenses WHERE id = ?", (expense_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def update_expense(self, expense_id, amount, category, date, note=""):
+        """Update an existing expense."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """UPDATE expenses 
+               SET amount = ?, category = ?, date = ?, note = ?
+               WHERE id = ?""",
+            (float(amount), category, date, note, expense_id),
+        )
+        self.conn.commit()
+
+    def delete_expense(self, expense_id):
+        """Delete an expense by ID."""
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+        self.conn.commit()
+
+    def delete_all_expenses(self):
+        """Delete all expenses (with caution!)."""
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM expenses")
+        self.conn.commit()
+
+    # ─── Filtered Queries ─────────────────────────────────────
+
+    def get_expenses_filtered(self, category=None, start_date=None, end_date=None, search=None):
+        """Get expenses with optional filters."""
+        query = "SELECT * FROM expenses WHERE 1=1"
+        params = []
+
+        if category and category != "All":
+            query += " AND category = ?"
+            params.append(category)
+
+        if start_date:
+            query += " AND date >= ?"
+            params.append(start_date)
+
+        if end_date:
+            query += " AND date <= ?"
+            params.append(end_date)
+
+        if search:
+            query += " AND (note LIKE ? OR category LIKE ?)"
+            params.extend([f"%{search}%", f"%{search}%"])
+
+        query += " ORDER BY date DESC, id DESC"
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
+
+    # ─── Aggregation Queries ──────────────────────────────────
+
+    def get_total(self):
+        """Get total of all expenses."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COALESCE(SUM(amount), 0) as total FROM expenses")
+        return cursor.fetchone()["total"]
+
+    def get_weekly_total(self):
+        """Get total expenses for the current week (Monday–Sunday)."""
+        today = datetime.now()
+        start_of_week = today - timedelta(days=today.weekday())
+        start_str = start_of_week.strftime(DATE_FORMAT)
+        end_str = today.strftime(DATE_FORMAT)
+
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE date >= ? AND date <= ?",
+            (start_str, end_str),
+        )
+        return cursor.fetchone()["total"]
+
+    def get_monthly_total(self):
+        """Get total expenses for the current month."""
+        today = datetime.now()
+        start_str = today.strftime("%Y-%m-01")
+        end_str = today.strftime(DATE_FORMAT)
+
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE date >= ? AND date <= ?",
+            (start_str, end_str),
+        )
+        return cursor.fetchone()["total"]
+
+    def get_category_breakdown(self):
+        """Get spending breakdown by category."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT category, COALESCE(SUM(amount), 0) as total
+            FROM expenses
+            GROUP BY category
+            ORDER BY total DESC
+        """)
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_monthly_breakdown(self, months=6):
+        """Get monthly spending for the last N months."""
+        today = datetime.now()
+        results = []
+
+        for i in range(months - 1, -1, -1):
+            # Calculate month
+            month = today.month - i
+            year = today.year
+            while month <= 0:
+                month += 12
+                year -= 1
+
+            month_str = f"{year}-{month:02d}"
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE strftime('%Y-%m', date) = ?",
+                (month_str,),
+            )
+            total = cursor.fetchone()["total"]
+
+            # Get month name
+            month_name = datetime(year, month, 1).strftime("%b %Y")
+            results.append({"month": month_name, "total": total})
+
+        return results
+
+    def get_weekly_trend(self, weeks=8):
+        """Get weekly spending trend for last N weeks."""
+        today = datetime.now()
+        results = []
+
+        for i in range(weeks - 1, -1, -1):
+            end = today - timedelta(weeks=i)
+            start = end - timedelta(days=6)
+
+            start_str = start.strftime(DATE_FORMAT)
+            end_str = end.strftime(DATE_FORMAT)
+
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE date >= ? AND date <= ?",
+                (start_str, end_str),
+            )
+            total = cursor.fetchone()["total"]
+
+            week_label = f"W{weeks - i}"
+            results.append({"week": week_label, "total": total, "start": start_str, "end": end_str})
+
+        return results
+
+    def get_recent_expenses(self, limit=5):
+        """Get the most recent N expenses."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM expenses ORDER BY date DESC, id DESC LIMIT ?",
+            (limit,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_expense_count(self):
+        """Get total number of expenses."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) as count FROM expenses")
+        return cursor.fetchone()["count"]
+
+    # ─── Settings ─────────────────────────────────────────────
+
+    def get_setting(self, key, default=None):
+        """Get a setting value by key."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        return row["value"] if row else default
+
+    def set_setting(self, key, value):
+        """Set a setting value (upsert)."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            (key, str(value)),
+        )
+        self.conn.commit()
+
+    # ─── Migration ────────────────────────────────────────────
+
+    def _migrate_csv_if_needed(self):
+        """Migrate data from old CSV if it exists and DB is empty."""
+        if not os.path.exists(OLD_CSV_PATH):
+            return
+
+        # Only migrate if DB has no expenses yet
+        if self.get_expense_count() > 0:
+            return
+
+        try:
+            with open(OLD_CSV_PATH, "r", newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                count = 0
+                for row in reader:
+                    amount = row.get("amount", "0")
+                    category = row.get("category", "Other")
+                    date = row.get("date", datetime.now().strftime(DATE_FORMAT))
+                    note = row.get("note", "")
+
+                    try:
+                        self.add_expense(float(amount), category, date, note)
+                        count += 1
+                    except (ValueError, TypeError):
+                        continue
+
+                if count > 0:
+                    print(f"[OK] Migrated {count} expenses from CSV to SQLite")
+
+        except Exception as e:
+            print(f"[WARN] CSV migration skipped: {e}")
+
+    # ─── Export ────────────────────────────────────────────────
+
+    def export_to_csv(self, filepath):
+        """Export all expenses to a CSV file."""
+        expenses = self.get_all_expenses()
+        if not expenses:
+            return False
+
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["id", "amount", "category", "date", "note", "created_at"])
+            writer.writeheader()
+            writer.writerows(expenses)
+
+        return True
+
+    def import_from_csv(self, filepath):
+        """Import expenses from a CSV file."""
+        count = 0
+        with open(filepath, "r", newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    amount = float(row.get("amount", 0))
+                    category = row.get("category", "Other")
+                    date = row.get("date", datetime.now().strftime(DATE_FORMAT))
+                    note = row.get("note", "")
+                    self.add_expense(amount, category, date, note)
+                    count += 1
+                except (ValueError, TypeError):
+                    continue
+        return count
+
+    def close(self):
+        """Close database connection."""
+        self.conn.close()
