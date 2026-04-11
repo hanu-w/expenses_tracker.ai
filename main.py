@@ -2,7 +2,7 @@
 💰 ExpenseAI — Smart Expense Tracker
 A premium fintech-grade desktop expense tracking application.
 
-Run this file to launch the app:
+Run this file to launch the app :
     python main.py
 """
 
