@@ -29,18 +29,18 @@ class ExpenseListView(ctk.CTkFrame):
 
         # ─── Header ──────────────────────────────────────────
         header = ctk.CTkFrame(self, fg_color="transparent")
-        header.pack(fill="x", padx=24, pady=(20, 4))
+        header.pack(fill="x", padx=28, pady=(24, 8))
 
         ctk.CTkLabel(
             header, text="Expenses",
             font=FONTS["heading"],
-            text_color=self.theme.get("text", "#eaeaea"),
+            text_color=self.theme.get("text", "#f0f0f5"),
             anchor="w"
         ).pack(side="left")
 
         # ─── Search & Filters ────────────────────────────────
         filter_frame = ctk.CTkFrame(self, fg_color="transparent")
-        filter_frame.pack(fill="x", padx=24, pady=(12, 0))
+        filter_frame.pack(fill="x", padx=28, pady=(12, 0))
 
         # Search bar
         self.search_bar = SearchBar(
@@ -49,7 +49,7 @@ class ExpenseListView(ctk.CTkFrame):
             on_search=self._on_search,
             theme=self.theme,
         )
-        self.search_bar.pack(fill="x", pady=(0, 10))
+        self.search_bar.pack(fill="x", pady=(0, 12))
 
         # Filter row
         filter_row = ctk.CTkFrame(filter_frame, fg_color="transparent")
@@ -57,52 +57,52 @@ class ExpenseListView(ctk.CTkFrame):
 
         # Category filter
         ctk.CTkLabel(
-            filter_row, text="Category:", font=FONTS["small"],
-            text_color=self.theme.get("text_secondary", "#8a8a9a"),
-        ).pack(side="left", padx=(0, 6))
+            filter_row, text="Category:", font=FONTS["body"],
+            text_color=self.theme.get("text_secondary", "#b0b0c0"),
+        ).pack(side="left", padx=(0, 8))
 
         cat_options = ["All"] + CATEGORIES
         self.category_var = ctk.StringVar(value="All")
         cat_menu = ctk.CTkOptionMenu(
             filter_row, values=cat_options, variable=self.category_var,
-            font=FONTS["small"], width=140, height=32, corner_radius=8,
+            font=FONTS["body"], width=150, height=36, corner_radius=8,
             fg_color=self.theme.get("input_bg", "#16162a"),
             button_color=self.theme.get("accent", "#6c5ce7"),
             button_hover_color=self.theme.get("accent_hover", "#7d6ff0"),
             dropdown_fg_color=self.theme.get("surface", "#12121a"),
             dropdown_hover_color=self.theme.get("card_hover", "#1f1f35"),
-            dropdown_text_color=self.theme.get("text", "#eaeaea"),
-            text_color=self.theme.get("text", "#eaeaea"),
+            dropdown_text_color=self.theme.get("text", "#f0f0f5"),
+            text_color=self.theme.get("text", "#f0f0f5"),
             command=self._on_category_change,
         )
-        cat_menu.pack(side="left", padx=(0, 16))
+        cat_menu.pack(side="left", padx=(0, 20))
 
         # Period filter
         ctk.CTkLabel(
-            filter_row, text="Period:", font=FONTS["small"],
-            text_color=self.theme.get("text_secondary", "#8a8a9a"),
-        ).pack(side="left", padx=(0, 6))
+            filter_row, text="Period:", font=FONTS["body"],
+            text_color=self.theme.get("text_secondary", "#b0b0c0"),
+        ).pack(side="left", padx=(0, 8))
 
         periods = ["All Time", "This Week", "This Month", "Last 3 Months"]
         self.period_var = ctk.StringVar(value="All Time")
         period_menu = ctk.CTkOptionMenu(
             filter_row, values=periods, variable=self.period_var,
-            font=FONTS["small"], width=140, height=32, corner_radius=8,
+            font=FONTS["body"], width=150, height=36, corner_radius=8,
             fg_color=self.theme.get("input_bg", "#16162a"),
             button_color=self.theme.get("accent", "#6c5ce7"),
             button_hover_color=self.theme.get("accent_hover", "#7d6ff0"),
             dropdown_fg_color=self.theme.get("surface", "#12121a"),
             dropdown_hover_color=self.theme.get("card_hover", "#1f1f35"),
-            dropdown_text_color=self.theme.get("text", "#eaeaea"),
-            text_color=self.theme.get("text", "#eaeaea"),
+            dropdown_text_color=self.theme.get("text", "#f0f0f5"),
+            text_color=self.theme.get("text", "#f0f0f5"),
             command=self._on_period_change,
         )
         period_menu.pack(side="left")
 
         # Count label (right side)
         self.count_label = ctk.CTkLabel(
-            filter_row, text="", font=FONTS["small"],
-            text_color=self.theme.get("text_muted", "#5a5a6a"),
+            filter_row, text="", font=FONTS["body"],
+            text_color=self.theme.get("text_secondary", "#b0b0c0"),
         )
         self.count_label.pack(side="right")
 
@@ -111,7 +111,7 @@ class ExpenseListView(ctk.CTkFrame):
             self, fg_color="transparent",
             scrollbar_button_color=self.theme.get("scrollbar", "#2a2a3e"),
         )
-        self.list_frame.pack(fill="both", expand=True, padx=24, pady=(12, 16))
+        self.list_frame.pack(fill="both", expand=True, padx=28, pady=(14, 20))
 
         self._load_expenses()
 
@@ -160,14 +160,14 @@ class ExpenseListView(ctk.CTkFrame):
                 fg_color=self.theme.get("card", "#1a1a2e"),
                 corner_radius=10,
             )
-            total_frame.pack(fill="x", pady=(0, 8))
+            total_frame.pack(fill="x", pady=(0, 10))
 
             ctk.CTkLabel(
                 total_frame,
                 text=f"Total: {CURRENCY_SYMBOL}{filtered_total:,.2f}",
                 font=FONTS["body_bold"],
                 text_color=self.theme.get("accent", "#6c5ce7"),
-            ).pack(padx=16, pady=8)
+            ).pack(padx=20, pady=10)
 
             for exp in expenses:
                 card = ExpenseCard(
@@ -175,25 +175,25 @@ class ExpenseListView(ctk.CTkFrame):
                     theme=self.theme,
                     on_delete=self._on_delete,
                 )
-                card.pack(fill="x", pady=3)
+                card.pack(fill="x", pady=4)
         else:
             empty_frame = ctk.CTkFrame(self.list_frame, fg_color="transparent")
             empty_frame.pack(fill="both", expand=True, pady=60)
 
             ctk.CTkLabel(
-                empty_frame, text="📭", font=("Segoe UI", 48),
+                empty_frame, text="📭", font=("Segoe UI", 52),
             ).pack()
 
             ctk.CTkLabel(
                 empty_frame, text="No expenses found",
                 font=FONTS["subheading"],
-                text_color=self.theme.get("text_secondary", "#8a8a9a"),
-            ).pack(pady=(8, 4))
+                text_color=self.theme.get("text_secondary", "#b0b0c0"),
+            ).pack(pady=(10, 6))
 
             ctk.CTkLabel(
                 empty_frame, text="Try adjusting your filters or add a new expense",
-                font=FONTS["small"],
-                text_color=self.theme.get("text_muted", "#5a5a6a"),
+                font=FONTS["body"],
+                text_color=self.theme.get("text_secondary", "#b0b0c0"),
             ).pack()
 
     def _on_search(self, value):

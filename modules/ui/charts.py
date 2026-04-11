@@ -40,24 +40,24 @@ class ChartsView(ctk.CTkFrame):
 
         # ─── Header ──────────────────────────────────────────
         header = ctk.CTkFrame(content, fg_color="transparent")
-        header.pack(fill="x", padx=24, pady=(20, 4))
+        header.pack(fill="x", padx=28, pady=(24, 8))
 
         ctk.CTkLabel(
             header, text="Charts & Analytics",
             font=FONTS["heading"],
-            text_color=self.theme.get("text", "#eaeaea"),
+            text_color=self.theme.get("text", "#f0f0f5"),
             anchor="w"
         ).pack(side="left")
 
         ctk.CTkLabel(
             header, text="Visual spending insights",
-            font=FONTS["small"],
-            text_color=self.theme.get("text_muted", "#5a5a6a"),
-        ).pack(side="left", padx=(12, 0), pady=(8, 0))
+            font=FONTS["body"],
+            text_color=self.theme.get("text_secondary", "#b0b0c0"),
+        ).pack(side="left", padx=(14, 0), pady=(6, 0))
 
         # ─── Top Row: Pie + Bar ──────────────────────────────
         top_row = ctk.CTkFrame(content, fg_color="transparent")
-        top_row.pack(fill="x", padx=24, pady=(16, 0))
+        top_row.pack(fill="x", padx=28, pady=(20, 0))
         top_row.columnconfigure((0, 1), weight=1, uniform="chart")
 
         # Pie Chart Card
@@ -66,12 +66,12 @@ class ChartsView(ctk.CTkFrame):
             corner_radius=16, border_width=1,
             border_color=self.theme.get("border", "#2a2a3e"),
         )
-        pie_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        pie_card.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
 
         ctk.CTkLabel(
             pie_card, text="📊  Spending by Category", font=FONTS["title"],
-            text_color=self.theme.get("text", "#eaeaea"), anchor="w"
-        ).pack(fill="x", padx=16, pady=(16, 0))
+            text_color=self.theme.get("text", "#f0f0f5"), anchor="w"
+        ).pack(fill="x", padx=20, pady=(20, 0))
 
         self._draw_pie_chart(pie_card)
 
@@ -81,12 +81,12 @@ class ChartsView(ctk.CTkFrame):
             corner_radius=16, border_width=1,
             border_color=self.theme.get("border", "#2a2a3e"),
         )
-        bar_card.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        bar_card.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
 
         ctk.CTkLabel(
             bar_card, text="📊  Monthly Spending", font=FONTS["title"],
-            text_color=self.theme.get("text", "#eaeaea"), anchor="w"
-        ).pack(fill="x", padx=16, pady=(16, 0))
+            text_color=self.theme.get("text", "#f0f0f5"), anchor="w"
+        ).pack(fill="x", padx=20, pady=(20, 0))
 
         self._draw_bar_chart(bar_card)
 
@@ -96,12 +96,12 @@ class ChartsView(ctk.CTkFrame):
             corner_radius=16, border_width=1,
             border_color=self.theme.get("border", "#2a2a3e"),
         )
-        line_card.pack(fill="x", padx=24, pady=(16, 0))
+        line_card.pack(fill="x", padx=28, pady=(20, 0))
 
         ctk.CTkLabel(
             line_card, text="📈  Weekly Spending Trend", font=FONTS["title"],
-            text_color=self.theme.get("text", "#eaeaea"), anchor="w"
-        ).pack(fill="x", padx=16, pady=(16, 0))
+            text_color=self.theme.get("text", "#f0f0f5"), anchor="w"
+        ).pack(fill="x", padx=20, pady=(20, 0))
 
         self._draw_line_chart(line_card)
 
@@ -111,12 +111,12 @@ class ChartsView(ctk.CTkFrame):
             corner_radius=16, border_width=1,
             border_color=self.theme.get("border", "#2a2a3e"),
         )
-        insights_card.pack(fill="x", padx=24, pady=(16, 16))
+        insights_card.pack(fill="x", padx=28, pady=(20, 20))
 
         ctk.CTkLabel(
             insights_card, text="💡  Quick Insights", font=FONTS["title"],
-            text_color=self.theme.get("text", "#eaeaea"), anchor="w"
-        ).pack(fill="x", padx=16, pady=(16, 8))
+            text_color=self.theme.get("text", "#f0f0f5"), anchor="w"
+        ).pack(fill="x", padx=20, pady=(20, 10))
 
         self._draw_insights(insights_card)
 
@@ -137,7 +137,7 @@ class ChartsView(ctk.CTkFrame):
             wedges, texts, autotexts = ax.pie(
                 sizes, labels=None, colors=colors,
                 autopct="%1.1f%%", startangle=90,
-                textprops={"fontsize": 9, "color": "#ffffff"},
+                textprops={"fontsize": 10, "color": "#ffffff"},
                 pctdistance=0.75,
                 wedgeprops={"linewidth": 2.5, "edgecolor": self.theme.get("card", "#1a1a2e")},
             )
@@ -147,20 +147,20 @@ class ChartsView(ctk.CTkFrame):
             ax.legend(
                 wedges, legend_labels,
                 loc="center left", bbox_to_anchor=(1, 0.5),
-                fontsize=8,
+                fontsize=9,
                 frameon=False,
-                labelcolor=self.theme.get("text_secondary", "#8a8a9a"),
+                labelcolor=self.theme.get("text_secondary", "#b0b0c0"),
             )
         else:
             ax.text(0.5, 0.5, "No data yet", ha="center", va="center",
-                    fontsize=14, color=self.theme.get("text_muted", "#5a5a6a"),
+                    fontsize=14, color=self.theme.get("text_secondary", "#b0b0c0"),
                     transform=ax.transAxes)
             ax.axis("off")
 
         fig.tight_layout(pad=1)
         canvas = FigureCanvasTkAgg(fig, parent)
         canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True, padx=8, pady=(4, 16))
+        canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=(6, 20))
 
     def _draw_bar_chart(self, parent):
         """Draw monthly spending bar chart."""
@@ -190,7 +190,7 @@ class ChartsView(ctk.CTkFrame):
                         bar.get_height() + max(totals) * 0.03,
                         f"{CURRENCY_SYMBOL}{val:,.0f}",
                         ha="center", va="bottom",
-                        fontsize=8, color=self.theme.get("text_secondary", "#8a8a9a"),
+                        fontsize=9, color=self.theme.get("text_secondary", "#b0b0c0"),
                         fontweight="bold",
                     )
 
@@ -198,20 +198,20 @@ class ChartsView(ctk.CTkFrame):
             ax.spines["right"].set_visible(False)
             ax.spines["left"].set_color(self.theme.get("border", "#2a2a3e"))
             ax.spines["bottom"].set_color(self.theme.get("border", "#2a2a3e"))
-            ax.tick_params(axis="x", labelsize=8, rotation=15)
-            ax.tick_params(axis="y", labelsize=8)
-            ax.grid(axis="y", alpha=0.15, color=self.theme.get("text_muted", "#5a5a6a"))
+            ax.tick_params(axis="x", labelsize=9, rotation=15)
+            ax.tick_params(axis="y", labelsize=9)
+            ax.grid(axis="y", alpha=0.15, color=self.theme.get("text_muted", "#808098"))
             ax.set_axisbelow(True)
         else:
             ax.text(0.5, 0.5, "No data yet", ha="center", va="center",
-                    fontsize=14, color=self.theme.get("text_muted", "#5a5a6a"),
+                    fontsize=14, color=self.theme.get("text_secondary", "#b0b0c0"),
                     transform=ax.transAxes)
             ax.axis("off")
 
         fig.tight_layout(pad=1)
         canvas = FigureCanvasTkAgg(fig, parent)
         canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True, padx=8, pady=(4, 16))
+        canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=(6, 20))
 
     def _draw_line_chart(self, parent):
         """Draw weekly trend line chart."""
@@ -243,29 +243,29 @@ class ChartsView(ctk.CTkFrame):
                         f"{CURRENCY_SYMBOL}{val:,.0f}",
                         (xi, val), textcoords="offset points",
                         xytext=(0, 14), ha="center",
-                        fontsize=8, color=self.theme.get("text_secondary", "#8a8a9a"),
+                        fontsize=9, color=self.theme.get("text_secondary", "#b0b0c0"),
                         fontweight="bold",
                     )
 
             ax.set_xticks(list(x))
-            ax.set_xticklabels(weeks, fontsize=9)
+            ax.set_xticklabels(weeks, fontsize=10)
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
             ax.spines["left"].set_color(self.theme.get("border", "#2a2a3e"))
             ax.spines["bottom"].set_color(self.theme.get("border", "#2a2a3e"))
-            ax.grid(axis="y", alpha=0.15, color=self.theme.get("text_muted", "#5a5a6a"))
+            ax.grid(axis="y", alpha=0.15, color=self.theme.get("text_muted", "#808098"))
             ax.set_axisbelow(True)
         else:
             ax.text(0.5, 0.5, "No data yet — add some expenses to see trends",
                     ha="center", va="center",
-                    fontsize=14, color=self.theme.get("text_muted", "#5a5a6a"),
+                    fontsize=14, color=self.theme.get("text_secondary", "#b0b0c0"),
                     transform=ax.transAxes)
             ax.axis("off")
 
         fig.tight_layout(pad=1)
         canvas = FigureCanvasTkAgg(fig, parent)
         canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True, padx=8, pady=(4, 16))
+        canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=(6, 20))
 
     def _draw_insights(self, parent):
         """Generate and display quick insights."""
@@ -274,24 +274,24 @@ class ChartsView(ctk.CTkFrame):
         insights = get_insights(self.db)
 
         inner = ctk.CTkFrame(parent, fg_color="transparent")
-        inner.pack(fill="x", padx=16, pady=(0, 16))
+        inner.pack(fill="x", padx=20, pady=(0, 20))
 
         if insights:
             for insight in insights:
                 row = ctk.CTkFrame(inner, fg_color="transparent")
-                row.pack(fill="x", pady=2)
+                row.pack(fill="x", pady=3)
 
                 ctk.CTkLabel(
                     row, text=insight, font=FONTS["body"],
-                    text_color=self.theme.get("text_secondary", "#8a8a9a"),
+                    text_color=self.theme.get("text_secondary", "#b0b0c0"),
                     anchor="w"
                 ).pack(fill="x")
         else:
             ctk.CTkLabel(
                 inner, text="Add more expenses to see personalized insights!",
                 font=FONTS["body"],
-                text_color=self.theme.get("text_muted", "#5a5a6a"),
-            ).pack(pady=8)
+                text_color=self.theme.get("text_secondary", "#b0b0c0"),
+            ).pack(pady=10)
 
     def refresh(self, theme=None, app_mode=None):
         """Rebuild charts with fresh data."""

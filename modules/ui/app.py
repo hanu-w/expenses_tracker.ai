@@ -36,8 +36,8 @@ class ExpenseTrackerApp(ctk.CTk):
         self.minsize(MIN_WIDTH, MIN_HEIGHT)
         self.configure(fg_color=self.theme["bg"])
 
-        # Set appearance mode
-        ctk.set_appearance_mode("dark")  # CustomTkinter internal mode
+        # Set appearance mode to match saved preference
+        ctk.set_appearance_mode(self.app_mode)
         ctk.set_default_color_theme("blue")
 
         # ─── Layout ──────────────────────────────────────────
@@ -48,6 +48,8 @@ class ExpenseTrackerApp(ctk.CTk):
         self.sidebar = Sidebar(
             self, theme=self.theme,
             on_navigate=self.switch_view,
+            on_theme_toggle=self._on_theme_change,
+            app_mode=self.app_mode,
             width=SIDEBAR_WIDTH,
         )
         self.sidebar.grid(row=0, column=0, sticky="nsew")
@@ -116,14 +118,19 @@ class ExpenseTrackerApp(ctk.CTk):
 
     def _on_data_changed(self):
         """Called when expense data changes — refresh current view."""
-        # Just refresh by re-showing the current view
-        pass  # View will refresh on next navigation
+        self._show_view(self.current_view_name)
 
-    def _on_theme_change(self, mode):
-        """Handle theme mode change."""
+    def _on_theme_change(self, mode=None):
+        """Handle theme mode change. If mode is None, toggle current mode."""
+        if mode is None:
+            mode = "light" if self.app_mode == "dark" else "dark"
+
         self.app_mode = mode
         self.theme = get_theme(mode)
         self.db.set_setting("theme_mode", mode)
+
+        # Sync CustomTkinter appearance mode
+        ctk.set_appearance_mode(mode)
 
         # Update app background
         self.configure(fg_color=self.theme["bg"])
@@ -134,6 +141,8 @@ class ExpenseTrackerApp(ctk.CTk):
         self.sidebar = Sidebar(
             self, theme=self.theme,
             on_navigate=self.switch_view,
+            on_theme_toggle=self._on_theme_change,
+            app_mode=self.app_mode,
             width=SIDEBAR_WIDTH,
         )
         self.sidebar.grid(row=0, column=0, sticky="nsew")

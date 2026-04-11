@@ -20,15 +20,15 @@ DARK_THEME = {
     "danger_bg":       "#2e0a0a",
     "warning":         "#ffeaa7",
     "warning_bg":      "#2e2a0a",
-    "text":            "#eaeaea",
-    "text_secondary":  "#8a8a9a",
-    "text_muted":      "#5a5a6a",
+    "text":            "#f0f0f5",
+    "text_secondary":  "#b0b0c0",
+    "text_muted":      "#808098",
     "border":          "#2a2a3e",
     "input_bg":        "#16162a",
     "input_border":    "#2a2a40",
     "scrollbar":       "#2a2a3e",
     "chart_bg":        "#12121a",
-    "chart_text":      "#eaeaea",
+    "chart_text":      "#f0f0f5",
     "chart_grid":      "#1a1a2e",
 }
 
@@ -50,8 +50,8 @@ LIGHT_THEME = {
     "warning":         "#f39c12",
     "warning_bg":      "#fef9e7",
     "text":            "#2d3436",
-    "text_secondary":  "#636e72",
-    "text_muted":      "#b2bec3",
+    "text_secondary":  "#4a5568",
+    "text_muted":      "#718096",
     "border":          "#dfe6e9",
     "input_bg":        "#f5f6fa",
     "input_border":    "#dcdde1",
@@ -63,18 +63,18 @@ LIGHT_THEME = {
 
 # ─── Fonts ────────────────────────────────────────────────────
 FONTS = {
-    "heading":      ("Segoe UI", 26, "bold"),
+    "heading":      ("Segoe UI", 22, "bold"),
     "subheading":   ("Segoe UI", 18, "bold"),
-    "title":        ("Segoe UI", 15, "bold"),
-    "body":         ("Segoe UI", 13),
-    "body_bold":    ("Segoe UI", 13, "bold"),
-    "small":        ("Segoe UI", 11),
-    "small_bold":   ("Segoe UI", 11, "bold"),
-    "tiny":         ("Segoe UI", 9),
-    "amount_large": ("Segoe UI", 32, "bold"),
+    "title":        ("Segoe UI", 16, "bold"),
+    "body":         ("Segoe UI", 14),
+    "body_bold":    ("Segoe UI", 14, "bold"),
+    "small":        ("Segoe UI", 12),
+    "small_bold":   ("Segoe UI", 12, "bold"),
+    "tiny":         ("Segoe UI", 11),
+    "amount_large": ("Segoe UI", 34, "bold"),
     "nav":          ("Segoe UI", 14),
     "nav_active":   ("Segoe UI", 14, "bold"),
-    "button":       ("Segoe UI", 13, "bold"),
+    "button":       ("Segoe UI", 14, "bold"),
 }
 
 
@@ -98,5 +98,5 @@ def get_chart_style(mode="dark"):
         "grid.alpha": 0.3,
         "figure.autolayout": True,
         "font.family": "Segoe UI",
-        "font.size": 10,
+        "font.size": 12,
     }
