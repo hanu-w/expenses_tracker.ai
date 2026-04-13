@@ -33,6 +33,16 @@ class ExpenseDB:
                 category TEXT NOT NULL,
                 date TEXT NOT NULL,
                 note TEXT DEFAULT '',
+                bill_id INTEGER,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (bill_id) REFERENCES bills (id) ON DELETE SET NULL
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS bills (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -44,6 +54,12 @@ class ExpenseDB:
             )
         """)
 
+        # Migration: Add bill_id to expenses if it doesn't exist (for existing DBs)
+        cursor.execute("PRAGMA table_info(expenses)")
+        columns = [col["name"] for col in cursor.fetchall()]
+        if "bill_id" not in columns:
+            cursor.execute("ALTER TABLE expenses ADD COLUMN bill_id INTEGER")
+
         self.conn.commit()
 
     def clear_cache(self):
@@ -52,12 +68,12 @@ class ExpenseDB:
 
     # ─── CRUD Operations ──────────────────────────────────────
 
-    def add_expense(self, amount, category, date, note=""):
+    def add_expense(self, amount, category, date, note="", bill_id=None):
         """Add a new expense to the database."""
         cursor = self.conn.cursor()
         cursor.execute(
-            "INSERT INTO expenses (amount, category, date, note) VALUES (?, ?, ?, ?)",
-            (float(amount), category, date, note),
+            "INSERT INTO expenses (amount, category, date, note, bill_id) VALUES (?, ?, ?, ?, ?)",
+            (float(amount), category, date, note, bill_id),
         )
         self.conn.commit()
         self.clear_cache()
@@ -76,14 +92,14 @@ class ExpenseDB:
         row = cursor.fetchone()
         return dict(row) if row else None
 
-    def update_expense(self, expense_id, amount, category, date, note=""):
+    def update_expense(self, expense_id, amount, category, date, note="", bill_id=None):
         """Update an existing expense."""
         cursor = self.conn.cursor()
         cursor.execute(
             """UPDATE expenses 
-               SET amount = ?, category = ?, date = ?, note = ?
+               SET amount = ?, category = ?, date = ?, note = ?, bill_id = ?
                WHERE id = ?""",
-            (float(amount), category, date, note, expense_id),
+            (float(amount), category, date, note, bill_id, expense_id),
         )
         self.conn.commit()
         self.clear_cache()
@@ -282,6 +298,55 @@ class ExpenseDB:
         cursor = self.conn.cursor()
         cursor.execute("SELECT COUNT(*) as count FROM expenses")
         return cursor.fetchone()["count"]
+
+    # ─── Bill Management ──────────────────────────────────────
+
+    def add_bill(self, name):
+        """Add a new bill/group."""
+        cursor = self.conn.cursor()
+        cursor.execute("INSERT INTO bills (name) VALUES (?)", (name,))
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def get_all_bills(self):
+        """Get all bills ordered by creation date."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM bills ORDER BY created_at DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_expenses_by_bill(self, bill_id):
+        """Get all expenses linked to a specific bill."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM expenses WHERE bill_id = ? ORDER BY date DESC",
+            (bill_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_bill_summary(self):
+        """Get all bills with their total spent amount."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT b.id, b.name, b.created_at, COALESCE(SUM(e.amount), 0) as total
+            FROM bills b
+            LEFT JOIN expenses e ON b.id = e.bill_id
+            GROUP BY b.id
+            ORDER BY b.created_at DESC
+        """)
+        return [dict(row) for row in cursor.fetchall()]
+
+    def delete_bill(self, bill_id, delete_expenses=False):
+        """Delete a bill. Optionally delete all its linked expenses."""
+        cursor = self.conn.cursor()
+        if delete_expenses:
+            cursor.execute("DELETE FROM expenses WHERE bill_id = ?", (bill_id,))
+        else:
+            # unlink expenses
+            cursor.execute("UPDATE expenses SET bill_id = NULL WHERE bill_id = ?", (bill_id,))
+        
+        cursor.execute("DELETE FROM bills WHERE id = ?", (bill_id,))
+        self.conn.commit()
+        self.clear_cache()
 
     # ─── Settings ─────────────────────────────────────────────
 

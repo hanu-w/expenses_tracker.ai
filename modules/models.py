@@ -17,6 +17,7 @@ class Expense:
     category: str = "Other"
     date: str = ""
     note: str = ""
+    bill_id: int = None
     created_at: str = ""
 
     def __post_init__(self):
@@ -59,5 +60,6 @@ class Expense:
             category=data.get("category", "Other"),
             date=data.get("date", ""),
             note=data.get("note", ""),
+            bill_id=data.get("bill_id"),
             created_at=data.get("created_at", ""),
         )

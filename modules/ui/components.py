@@ -437,6 +437,205 @@ class BudgetTrackerCard(ctk.CTkFrame):
         self._build_ui()
 
 
+class ModernInput(ctk.CTkFrame):
+    """
+    A premium card-styled input field with a label above it, 
+    an icon on the left, and a focus-state highlight.
+    """
+
+    def __init__(self, master, label_text, icon="📝", placeholder="", 
+                 is_option_menu=False, options=None, variable=None, 
+                 height=55, font=None, theme=None, **kwargs):
+        self.theme = theme or {}
+        super().__init__(master, fg_color="transparent", **kwargs)
+
+        self.border_normal = self.theme.get("input_border", "#2a2a40")
+        self.border_focus = self.theme.get("accent", "#6c5ce7")
+        self.is_option_menu = is_option_menu
+
+        # Label above
+        ctk.CTkLabel(
+            self, text=label_text, font=FONTS["small_bold"],
+            text_color=self.theme.get("text_secondary", "#b0b0c0"),
+            anchor="w"
+        ).pack(fill="x", pady=(0, 6), padx=4)
+
+        # Field Card Container
+        self.container = ctk.CTkFrame(
+            self, height=height, corner_radius=12,
+            border_width=1, border_color=self.border_normal,
+            fg_color=self.theme.get("input_bg", "#16162a"),
+        )
+        self.container.pack(fill="x")
+        self.container.pack_propagate(False)
+
+        # Icon
+        self.icon_label = ctk.CTkLabel(
+            self.container, text=icon, font=("Segoe UI", 18),
+            width=50
+        )
+        self.icon_label.pack(side="left", padx=(5, 0))
+
+        # Divider
+        divider = ctk.CTkFrame(self.container, width=1, fg_color=self.border_normal)
+        divider.pack(side="left", fill="y", pady=12)
+
+        # Input Field
+        if is_option_menu:
+            input_bg = self.theme.get("input_bg", "#16162a")
+            self.input = ctk.CTkOptionMenu(
+                self.container,
+                values=options or [],
+                variable=variable,
+                font=font or FONTS["body"],
+                fg_color=input_bg,
+                button_color=input_bg,
+                button_hover_color=self.theme.get("card_hover", "#1f1f35"),
+                dropdown_fg_color=self.theme.get("surface", "#12121a"),
+                dropdown_hover_color=self.theme.get("card_hover", "#1f1f35"),
+                dropdown_text_color=self.theme.get("text", "#f0f0f5"),
+                text_color=self.theme.get("text", "#f0f0f5"),
+                anchor="w",
+                dynamic_resizing=False,
+            )
+            self.input.pack(side="left", fill="both", expand=True, padx=(5, 10))
+        else:
+            self.input = ctk.CTkEntry(
+                self.container,
+                textvariable=variable,
+                placeholder_text=placeholder,
+                font=font or FONTS["body"],
+                fg_color="transparent",
+                border_width=0,
+                text_color=self.theme.get("text", "#f0f0f5"),
+                placeholder_text_color=self.theme.get("text_muted", "#808098"),
+            )
+            self.input.pack(side="left", fill="both", expand=True, padx=(12, 12))
+
+            # Bind focus events
+            self.input.bind("<FocusIn>", lambda e: self._on_focus(True))
+            self.input.bind("<FocusOut>", lambda e: self._on_focus(False))
+
+    def _on_focus(self, focused):
+        color = self.border_focus if focused else self.border_normal
+        self.container.configure(border_color=color)
+
+    def get(self):
+        return self.input.get()
+
+    def set(self, value):
+        if self.is_option_menu:
+            self.input.set(value)
+        else:
+            self.input.delete(0, "end")
+            self.input.insert(0, value)
+
+
+class BillGroupCard(ctk.CTkFrame):
+    """
+    Shows a grouping of expenses (a Bill) with a summary header and 
+    itemized list of expenses inside a single premium card.
+    """
+
+    def __init__(self, master, bill_data, expenses, theme=None, on_delete_expense=None, **kwargs):
+        self.theme = theme or {}
+        self.bill_data = bill_data
+        self.expenses = expenses
+        self.on_delete_expense = on_delete_expense
+
+        bg = self.theme.get("card", "#1a1a2e")
+        super().__init__(master, fg_color=bg, corner_radius=16, **kwargs)
+        self.configure(border_width=1, border_color=self.theme.get("accent", "#6c5ce7"))
+
+        self._build_ui()
+
+    def _build_ui(self):
+        # ─── Bill Header ─────────────────────────────────────
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=24, pady=20)
+
+        # Left: Bill Icon + Name
+        left = ctk.CTkFrame(header, fg_color="transparent")
+        left.pack(side="left")
+
+        ctk.CTkLabel(
+            left, text="📂", font=("Segoe UI", 28),
+        ).pack(side="left", padx=(0, 15))
+
+        name_stack = ctk.CTkFrame(left, fg_color="transparent")
+        name_stack.pack(side="left")
+
+        ctk.CTkLabel(
+            name_stack, text=self.bill_data.get("name", "Untitled Bill"),
+            font=FONTS["title"],
+            text_color=self.theme.get("text", "#f0f0f5"),
+            anchor="w"
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            name_stack, text=f"{len(self.expenses)} items included",
+            font=FONTS["small"],
+            text_color=self.theme.get("text_muted", "#808098"),
+            anchor="w"
+        ).pack(anchor="w")
+
+        # Right: Total Amount
+        total = self.bill_data.get("total", 0)
+        ctk.CTkLabel(
+            header, text=f"{CURRENCY_SYMBOL}{total:,.2f}",
+            font=FONTS["heading"],
+            text_color=self.theme.get("accent", "#6c5ce7"),
+            anchor="e"
+        ).pack(side="right")
+
+        # ─── Divider ─────────────────────────────────────────
+        div = ctk.CTkFrame(self, height=1, fg_color=self.theme.get("border", "#2a2a3e"))
+        div.pack(fill="x", padx=24)
+
+        # ─── Expenses List ──────────────────────────────────
+        list_frame = ctk.CTkFrame(self, fg_color="transparent")
+        list_frame.pack(fill="x", padx=12, pady=(10, 20))
+
+        for exp in self.expenses:
+            # More compact version of ExpenseCard
+            item = ctk.CTkFrame(list_frame, fg_color="transparent")
+            item.pack(fill="x", padx=12, pady=4)
+            
+            # Category icon
+            from config import CATEGORY_ICONS
+            cat_icon = CATEGORY_ICONS.get(exp.get("category"), "📌")
+            
+            ctk.CTkLabel(
+                item, text=cat_icon, font=("Segoe UI", 16),
+            ).pack(side="left", padx=(0, 10))
+
+            # Note
+            ctk.CTkLabel(
+                item, text=exp.get("note") or exp.get("category"),
+                font=FONTS["body"],
+                text_color=self.theme.get("text", "#f0f0f5"),
+            ).pack(side="left")
+
+            # Delete sub-item
+            if self.on_delete_expense:
+                del_btn = ctk.CTkButton(
+                    item, text="✕", width=24, height=24,
+                    fg_color="transparent",
+                    text_color=self.theme.get("danger", "#ff7675"),
+                    hover_color=self.theme.get("danger_bg", "#2e0a0a"),
+                    font=("Segoe UI", 10, "bold"),
+                    command=lambda e=exp: self.on_delete_expense(e.get("id"))
+                )
+                del_btn.pack(side="right")
+
+            # Amount
+            ctk.CTkLabel(
+                item, text=f"{CURRENCY_SYMBOL}{exp.get('amount'):,.2f}",
+                font=FONTS["body_bold"],
+                text_color=self.theme.get("text", "#f0f0f5"),
+            ).pack(side="right", padx=15)
+
+
 class EmptyState(ctk.CTkFrame):
     """A clean UI placeholder for empty data states."""
 
