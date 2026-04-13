@@ -11,16 +11,18 @@ matplotlib.use("TkAgg")
 
 from config import CURRENCY_SYMBOL, CATEGORY_COLORS
 from modules.theme import FONTS, get_chart_style
-from modules.ui.components import StatCard, ExpenseCard, BudgetTrackerCard
+from modules.ui.components import StatCard, ExpenseCard, BudgetTrackerCard, EmptyState
 
 
 class DashboardView(ctk.CTkFrame):
     """Dashboard view with financial overview."""
 
-    def __init__(self, master, db, theme, app_mode="dark", **kwargs):
+    def __init__(self, master, db, theme, app_mode="dark", on_navigate=None, **kwargs):
         self.db = db
         self.theme = theme
         self.app_mode = app_mode
+        self.on_navigate = on_navigate
+        self._data_fingerprint = None
 
         super().__init__(master, fg_color="transparent", **kwargs)
         self._build_ui()
@@ -36,6 +38,21 @@ class DashboardView(ctk.CTkFrame):
         self.scroll.pack(fill="both", expand=True, padx=0, pady=0)
 
         content = self.scroll
+
+        # ─── Data Check ──────────────────────────────────────
+        total_count = self.db.get_expense_count()
+
+        if total_count == 0:
+            EmptyState(
+                content,
+                title="Your Dashboard is Empty",
+                message="Track your first expense to see stats, charts, and financial insights here!",
+                icon="📊",
+                theme=self.theme,
+                action_text="➕  Add Your First Expense",
+                action_command=lambda: self.on_navigate("add_expense") if self.on_navigate else None
+            ).pack(expand=True, fill="both", pady=100)
+            return
 
         # ─── Header ──────────────────────────────────────────
         header = ctk.CTkFrame(content, fg_color="transparent")
@@ -203,6 +220,8 @@ class DashboardView(ctk.CTkFrame):
         matplotlib.rcParams.update(chart_style)
 
         breakdown = self.db.get_category_breakdown()
+        if not breakdown:
+            return
 
         fig = Figure(figsize=(4, 2.8), dpi=100)
         fig.patch.set_facecolor(self.theme.get("card", "#1a1a2e"))
@@ -243,6 +262,8 @@ class DashboardView(ctk.CTkFrame):
         matplotlib.rcParams.update(chart_style)
 
         monthly = self.db.get_monthly_breakdown(6)
+        if not monthly or not any(m["total"] > 0 for m in monthly):
+            return
 
         fig = Figure(figsize=(4, 2.8), dpi=100)
         fig.patch.set_facecolor(self.theme.get("card", "#1a1a2e"))
@@ -284,11 +305,18 @@ class DashboardView(ctk.CTkFrame):
         canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=(6, 16))
 
     def refresh(self, theme=None, app_mode=None):
-        """Rebuild the dashboard with fresh data."""
+        """Rebuild the dashboard with fresh data if it has changed."""
         if theme:
             self.theme = theme
         if app_mode:
             self.app_mode = app_mode
+
+        # Check if data has actually changed
+        new_fingerprint = f"{self.db.get_expense_count()}_{self.db.get_total()}_{self.app_mode}"
+        if self._data_fingerprint == new_fingerprint:
+            return  # No change, avoid expensive redraw
+            
+        self._data_fingerprint = new_fingerprint
 
         for widget in self.winfo_children():
             widget.destroy()

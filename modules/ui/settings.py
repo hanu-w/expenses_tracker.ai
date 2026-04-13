@@ -296,9 +296,19 @@ class SettingsView(ctk.CTkFrame):
             title="Import Expenses",
         )
         if filepath:
-            count = self.db.import_from_csv(filepath)
-            messagebox.showinfo("Import", f"✅ Imported {count} expenses!")
-            if self.on_data_changed:
+            results = self.db.import_from_csv(filepath)
+            
+            if results.get("error"):
+                messagebox.showerror("Import Error", "Failed to read the CSV file. Please check if it's a valid CSV.")
+                return
+
+            msg = f"✅ Successfully imported {results['success']} expenses!"
+            if results["skipped"] > 0:
+                msg += f"\n\n⚠️ {results['skipped']} rows were skipped due to invalid data (amount, date, or category)."
+            
+            messagebox.showinfo("Import Results", msg)
+            
+            if results["success"] > 0 and self.on_data_changed:
                 self.on_data_changed()
 
     def _on_clear_all(self):

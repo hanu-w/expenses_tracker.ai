@@ -7,7 +7,7 @@ import sqlite3
 import os
 import csv
 from datetime import datetime, timedelta
-from config import DB_PATH, OLD_CSV_PATH, DATE_FORMAT
+from config import DB_PATH, OLD_CSV_PATH, DATE_FORMAT, CATEGORIES
 
 
 class ExpenseDB:
@@ -18,6 +18,7 @@ class ExpenseDB:
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
         self.conn = sqlite3.connect(DB_PATH)
         self.conn.row_factory = sqlite3.Row
+        self._query_cache = {}
         self.create_tables()
         self._migrate_csv_if_needed()
 
@@ -45,6 +46,10 @@ class ExpenseDB:
 
         self.conn.commit()
 
+    def clear_cache(self):
+        """Clear the internal query results cache."""
+        self._query_cache = {}
+
     # ─── CRUD Operations ──────────────────────────────────────
 
     def add_expense(self, amount, category, date, note=""):
@@ -55,6 +60,7 @@ class ExpenseDB:
             (float(amount), category, date, note),
         )
         self.conn.commit()
+        self.clear_cache()
         return cursor.lastrowid
 
     def get_all_expenses(self):
@@ -80,22 +86,25 @@ class ExpenseDB:
             (float(amount), category, date, note, expense_id),
         )
         self.conn.commit()
+        self.clear_cache()
 
     def delete_expense(self, expense_id):
         """Delete an expense by ID."""
         cursor = self.conn.cursor()
         cursor.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
         self.conn.commit()
+        self.clear_cache()
 
     def delete_all_expenses(self):
         """Delete all expenses (with caution!)."""
         cursor = self.conn.cursor()
         cursor.execute("DELETE FROM expenses")
         self.conn.commit()
+        self.clear_cache()
 
     # ─── Filtered Queries ─────────────────────────────────────
 
-    def get_expenses_filtered(self, category=None, start_date=None, end_date=None, search=None):
+    def get_expenses_filtered(self, category=None, start_date=None, end_date=None, search=None, limit=None, offset=None):
         """Get expenses with optional filters."""
         query = "SELECT * FROM expenses WHERE 1=1"
         params = []
@@ -118,17 +127,52 @@ class ExpenseDB:
 
         query += " ORDER BY date DESC, id DESC"
 
+        if limit:
+            query += f" LIMIT {limit}"
+            if offset:
+                query += f" OFFSET {offset}"
+
         cursor = self.conn.cursor()
         cursor.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_filtered_total_and_count(self, category=None, start_date=None, end_date=None, search=None):
+        """Get sum of amounts and total count for filtered results without fetching all rows."""
+        query = "SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM expenses WHERE 1=1"
+        params = []
+
+        if category and category != "All":
+            query += " AND category = ?"
+            params.append(category)
+
+        if start_date:
+            query += " AND date >= ?"
+            params.append(start_date)
+
+        if end_date:
+            query += " AND date <= ?"
+            params.append(end_date)
+
+        if search:
+            query += " AND (note LIKE ? OR category LIKE ?)"
+            params.extend([f"%{search}%", f"%{search}%"])
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        return dict(cursor.fetchone())
+
     # ─── Aggregation Queries ──────────────────────────────────
 
     def get_total(self):
-        """Get total of all expenses."""
+        """Get total of all expenses (cached)."""
+        if "total" in self._query_cache:
+            return self._query_cache["total"]
+            
         cursor = self.conn.cursor()
         cursor.execute("SELECT COALESCE(SUM(amount), 0) as total FROM expenses")
-        return cursor.fetchone()["total"]
+        res = cursor.fetchone()["total"]
+        self._query_cache["total"] = res
+        return res
 
     def get_weekly_total(self):
         """Get total expenses for the current week (Monday–Sunday)."""
@@ -158,7 +202,10 @@ class ExpenseDB:
         return cursor.fetchone()["total"]
 
     def get_category_breakdown(self):
-        """Get spending breakdown by category."""
+        """Get spending breakdown by category (cached)."""
+        if "category_breakdown" in self._query_cache:
+            return self._query_cache["category_breakdown"]
+            
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT category, COALESCE(SUM(amount), 0) as total
@@ -166,7 +213,9 @@ class ExpenseDB:
             GROUP BY category
             ORDER BY total DESC
         """)
-        return [dict(row) for row in cursor.fetchall()]
+        res = [dict(row) for row in cursor.fetchall()]
+        self._query_cache["category_breakdown"] = res
+        return res
 
     def get_monthly_breakdown(self, months=6):
         """Get monthly spending for the last N months."""
@@ -300,22 +349,82 @@ class ExpenseDB:
 
         return True
 
+    def _parse_date(self, date_str):
+        """Try parsing date with multiple formats."""
+        formats = [
+            "%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", 
+            "%d-%m-%Y", "%Y/%m/%d", "%d %b %Y"
+        ]
+        for fmt in formats:
+            try:
+                dt = datetime.strptime(date_str, fmt)
+                return dt.strftime(DATE_FORMAT)
+            except ValueError:
+                continue
+        return None
+
     def import_from_csv(self, filepath):
-        """Import expenses from a CSV file."""
-        count = 0
-        with open(filepath, "r", newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                try:
-                    amount = float(row.get("amount", 0))
-                    category = row.get("category", "Other")
-                    date = row.get("date", datetime.now().strftime(DATE_FORMAT))
-                    note = row.get("note", "")
-                    self.add_expense(amount, category, date, note)
-                    count += 1
-                except (ValueError, TypeError):
-                    continue
-        return count
+        """Import expenses from a CSV file with flexible validation."""
+        import_results = {"success": 0, "total": 0, "skipped": 0}
+        
+        try:
+            with open(filepath, "r", newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    import_results["total"] += 1
+                    
+                    # 0. Lowercase all keys for case-insensitive lookup
+                    clean_row = {k.lower().strip(): v for k, v in row.items()}
+                    
+                    try:
+                        # 1. Validate Amount
+                        amount_raw = clean_row.get("amount", "0")
+                        amount = float(amount_raw)
+                        if amount <= 0:
+                            raise ValueError("Amount must be positive")
+
+                        # 2. Validate Category
+                        category = clean_row.get("category", "").strip()
+                        if category not in CATEGORIES:
+                            # Map to 'Other' if it's non-empty but unknown
+                            category = category if category else "Other"
+                            if category not in CATEGORIES:
+                                category = "Other"
+
+                        # 3. Validate Date
+                        date_raw = clean_row.get("date", "").strip()
+                        if not date_raw:
+                            raise ValueError("Date missing")
+                            
+                        parsed_date = self._parse_date(date_raw)
+                        if not parsed_date:
+                            raise ValueError(f"Unsupported date format: {date_raw}")
+                        
+                        # 4. Note (Consolidate note, payment_mode, month)
+                        note_parts = []
+                        main_note = clean_row.get("note", "").strip()
+                        if main_note: note_parts.append(main_note)
+                        
+                        payment = clean_row.get("payment_mode", "").strip()
+                        if payment: note_parts.append(f"via {payment}")
+                        
+                        month_context = clean_row.get("month", "").strip()
+                        if month_context: note_parts.append(f"({month_context})")
+                        
+                        final_note = " ".join(note_parts)
+
+                        # Insert
+                        self.add_expense(amount, category, parsed_date, final_note)
+                        import_results["success"] += 1
+
+                    except (ValueError, TypeError):
+                        import_results["skipped"] += 1
+                        continue
+                        
+        except Exception:
+            return {"success": 0, "total": 0, "skipped": 0, "error": True}
+
+        return import_results
 
     def close(self):
         """Close database connection."""

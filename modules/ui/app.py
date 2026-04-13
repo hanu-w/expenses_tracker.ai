@@ -87,6 +87,7 @@ class ExpenseTrackerApp(ctk.CTk):
             self.current_view = DashboardView(
                 self.content_frame, db=self.db,
                 theme=self.theme, app_mode=self.app_mode,
+                on_navigate=self.switch_view,
             )
         elif view_name == "add_expense":
             self.current_view = AddExpenseView(
@@ -99,11 +100,13 @@ class ExpenseTrackerApp(ctk.CTk):
                 self.content_frame, db=self.db,
                 theme=self.theme,
                 on_data_changed=self._on_data_changed,
+                on_navigate=self.switch_view,
             )
         elif view_name == "charts":
             self.current_view = ChartsView(
                 self.content_frame, db=self.db,
                 theme=self.theme, app_mode=self.app_mode,
+                on_navigate=self.switch_view,
             )
         elif view_name == "settings":
             self.current_view = SettingsView(

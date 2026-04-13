@@ -79,11 +79,8 @@ class ExpenseCard(ctk.CTkFrame):
         bg = self.theme.get("card", "#1a1a2e")
         hover_bg = self.theme.get("card_hover", "#1f1f35")
 
-        super().__init__(master, fg_color=bg, corner_radius=12, height=70, **kwargs)
+        super().__init__(master, fg_color=bg, corner_radius=12, **kwargs)
         self.configure(border_width=1, border_color=self.theme.get("border", "#2a2a3e"))
-
-        # Prevent shrinking
-        self.pack_propagate(False)
 
         inner = ctk.CTkFrame(self, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=20, pady=12)
@@ -122,12 +119,14 @@ class ExpenseCard(ctk.CTkFrame):
         note = expense_data.get("note", "")
         if note:
             note_label = ctk.CTkLabel(
-                left, text=note[:50] + ("..." if len(note) > 50 else ""),
-                font=FONTS["small"],
-                text_color=self.theme.get("text_secondary", "#b0b0c0"),
-                anchor="w"
+                left, text=note,
+                font=FONTS["body"],
+                text_color=self.theme.get("text", "#f0f0f5"),
+                anchor="w",
+                justify="left",
+                wraplength=500  # Allows wrapping for long notes
             )
-            note_label.pack(fill="x", anchor="w", pady=(4, 0))
+            note_label.pack(fill="x", anchor="w", pady=(6, 0))
 
         # Right side: amount + delete
         right = ctk.CTkFrame(inner, fg_color="transparent")
@@ -436,3 +435,43 @@ class BudgetTrackerCard(ctk.CTkFrame):
         for widget in self.winfo_children():
             widget.destroy()
         self._build_ui()
+
+
+class EmptyState(ctk.CTkFrame):
+    """A clean UI placeholder for empty data states."""
+
+    def __init__(self, master, title="No data available", message="Start by adding your first expense!",
+                 icon="📊", theme=None, action_text=None, action_command=None, **kwargs):
+        self.theme = theme or {}
+        super().__init__(master, fg_color="transparent", **kwargs)
+
+        inner = ctk.CTkFrame(self, fg_color="transparent")
+        inner.pack(expand=True, pady=60)
+
+        # Icon
+        ctk.CTkLabel(
+            inner, text=icon, font=("Segoe UI", 64),
+        ).pack(pady=(0, 20))
+
+        # Title
+        ctk.CTkLabel(
+            inner, text=title, font=FONTS["subheading"],
+            text_color=self.theme.get("text", "#f0f0f5"),
+        ).pack(pady=(0, 8))
+
+        # Message
+        ctk.CTkLabel(
+            inner, text=message, font=FONTS["body"],
+            text_color=self.theme.get("text_secondary", "#b0b0c0"),
+            wraplength=400,
+        ).pack(pady=(0, 24))
+
+        # Optional action button
+        if action_text and action_command:
+            ctk.CTkButton(
+                inner, text=action_text, command=action_command,
+                font=FONTS["body_bold"], height=40, corner_radius=10,
+                fg_color=self.theme.get("accent", "#6c5ce7"),
+                hover_color=self.theme.get("accent_hover", "#7d6ff0"),
+                text_color="#ffffff",
+            ).pack()

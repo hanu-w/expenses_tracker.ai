@@ -128,8 +128,14 @@ def get_spending_velocity(db):
     this_rate = this_month_total / max(days_this_month, 1)
     last_rate = last_month_total / max(days_last_month, 1)
 
+    # Calculate change percentage safely
+    if last_rate > 0:
+        change_pct = ((this_rate - last_rate) / last_rate) * 100
+    else:
+        change_pct = 100 if this_rate > 0 else 0
+
     return {
         "this_month_rate": this_rate,
         "last_month_rate": last_rate,
-        "change_pct": ((this_rate - last_rate) / max(last_rate, 1)) * 100,
+        "change_pct": change_pct,
     }

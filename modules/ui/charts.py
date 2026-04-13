@@ -12,15 +12,18 @@ import numpy as np
 
 from config import CURRENCY_SYMBOL, CATEGORY_COLORS
 from modules.theme import FONTS, get_chart_style
+from modules.ui.components import EmptyState
 
 
 class ChartsView(ctk.CTkFrame):
     """Charts view with pie, bar, and line charts."""
 
-    def __init__(self, master, db, theme, app_mode="dark", **kwargs):
+    def __init__(self, master, db, theme, app_mode="dark", on_navigate=None, **kwargs):
         self.db = db
         self.theme = theme
         self.app_mode = app_mode
+        self.on_navigate = on_navigate
+        self._data_fingerprint = None
 
         super().__init__(master, fg_color="transparent", **kwargs)
         self._build_ui()
@@ -37,6 +40,21 @@ class ChartsView(ctk.CTkFrame):
         )
         scroll.pack(fill="both", expand=True)
         content = scroll
+
+        # ─── Data Check ──────────────────────────────────────
+        total_count = self.db.get_expense_count()
+
+        if total_count == 0:
+            EmptyState(
+                content,
+                title="No Insights Yet",
+                message="Visual analytics and spending trends will appear here once you've added some expenses.",
+                icon="📈",
+                theme=self.theme,
+                action_text="➕  Add Expense",
+                action_command=lambda: self.on_navigate("add_expense") if self.on_navigate else None
+            ).pack(expand=True, fill="both", pady=100)
+            return
 
         # ─── Header ──────────────────────────────────────────
         header = ctk.CTkFrame(content, fg_color="transparent")
@@ -123,6 +141,8 @@ class ChartsView(ctk.CTkFrame):
     def _draw_pie_chart(self, parent):
         """Draw category breakdown pie chart."""
         breakdown = self.db.get_category_breakdown()
+        if not breakdown:
+            return
 
         fig = Figure(figsize=(4.5, 3.5), dpi=100)
         fig.patch.set_facecolor(self.theme.get("card", "#1a1a2e"))
@@ -165,6 +185,8 @@ class ChartsView(ctk.CTkFrame):
     def _draw_bar_chart(self, parent):
         """Draw monthly spending bar chart."""
         monthly = self.db.get_monthly_breakdown(6)
+        if not monthly or not any(m["total"] > 0 for m in monthly):
+            return
 
         fig = Figure(figsize=(4.5, 3.5), dpi=100)
         fig.patch.set_facecolor(self.theme.get("card", "#1a1a2e"))
@@ -216,6 +238,8 @@ class ChartsView(ctk.CTkFrame):
     def _draw_line_chart(self, parent):
         """Draw weekly trend line chart."""
         weekly = self.db.get_weekly_trend(8)
+        if not weekly or not any(w["total"] > 0 for w in weekly):
+            return
 
         fig = Figure(figsize=(10, 3.2), dpi=100)
         fig.patch.set_facecolor(self.theme.get("card", "#1a1a2e"))
@@ -294,11 +318,19 @@ class ChartsView(ctk.CTkFrame):
             ).pack(pady=10)
 
     def refresh(self, theme=None, app_mode=None):
-        """Rebuild charts with fresh data."""
+        """Rebuild charts with fresh data if changed."""
         if theme:
             self.theme = theme
         if app_mode:
             self.app_mode = app_mode
+            
+        # Check if data or theme has actually changed
+        new_fingerprint = f"{self.db.get_expense_count()}_{self.db.get_total()}_{self.app_mode}"
+        if self._data_fingerprint == new_fingerprint:
+            return  # No change, avoid expensive redraw
+            
+        self._data_fingerprint = new_fingerprint
+        
         for widget in self.winfo_children():
             widget.destroy()
         self._build_ui()
