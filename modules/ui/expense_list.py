@@ -7,7 +7,7 @@ import customtkinter as ctk
 from datetime import datetime, timedelta
 from config import CATEGORIES, CURRENCY_SYMBOL, DATE_FORMAT
 from modules.theme import FONTS
-from modules.ui.components import ExpenseCard, SearchBar, EmptyState, BillGroupCard
+from modules.ui.components import ExpenseCard, SearchBar, EmptyState, BillGroupCard, BillDetailPopup
 
 
 class ExpenseListView(ctk.CTkFrame):
@@ -221,12 +221,16 @@ class ExpenseListView(ctk.CTkFrame):
             return
 
         for bill in bills_summary:
+            # Note: the get_bill_summary query was updated to include count alias potentially
+            # If not, we can calculate it from expenses
             expenses = self.db.get_expenses_by_bill(bill["id"])
+            bill["count"] = len(expenses) # Ensure count is available
+            
             if expenses:
                 card = BillGroupCard(
-                    self.list_frame, bill, expenses, 
+                    self.list_frame, bill, 
                     theme=self.theme,
-                    on_delete_expense=self._on_delete
+                    on_click=self._open_bill_details
                 )
                 card.pack(fill="x", pady=10)
 
@@ -258,6 +262,13 @@ class ExpenseListView(ctk.CTkFrame):
             action_text="➕  Add Expense",
             action_command=lambda: self.on_navigate("add_expense") if self.on_navigate else None
         ).pack(expand=True, fill="both", pady=40)
+
+    def _open_bill_details(self, bill_id):
+        """Open the detailed popup for a bill."""
+        BillDetailPopup(
+            self, bill_id, self.db, self.theme, 
+            on_delete_expense=self._on_delete
+        )
 
     def _on_view_mode_change(self, value):
         """Switch between List and Grouped view."""

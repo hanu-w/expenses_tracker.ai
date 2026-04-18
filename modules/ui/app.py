@@ -40,6 +40,10 @@ class ExpenseTrackerApp(ctk.CTk):
         ctk.set_appearance_mode(self.app_mode)
         ctk.set_default_color_theme("blue")
 
+        # ─── Bill Session State ──────────────────────────────
+        self.active_bill_id = None
+        self.active_bill_name = None
+
         # ─── Layout ──────────────────────────────────────────
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -94,6 +98,11 @@ class ExpenseTrackerApp(ctk.CTk):
                 self.content_frame, db=self.db,
                 theme=self.theme,
                 on_expense_added=self._on_data_changed,
+                # Session-based grouping
+                active_bill_id=self.active_bill_id,
+                active_bill_name=self.active_bill_name,
+                on_start_session=self.start_bill_session,
+                on_finish_session=self.finish_bill_session,
             )
         elif view_name == "expense_list":
             self.current_view = ExpenseListView(
@@ -138,6 +147,21 @@ class ExpenseTrackerApp(ctk.CTk):
         # Update app background
         self.configure(fg_color=self.theme["bg"])
         self.content_frame.configure(fg_color=self.theme["bg"])
+
+    # ─── Bill Session Management ──────────────────────────────
+
+    def start_bill_session(self, name):
+        """Start a new bill grouping session."""
+        bill_id = self.db.add_bill(name)
+        self.active_bill_id = bill_id
+        self.active_bill_name = name
+        self._on_data_changed() # Refresh UI to show session banner
+
+    def finish_bill_session(self):
+        """End current bill session."""
+        self.active_bill_id = None
+        self.active_bill_name = None
+        self._on_data_changed()
 
         # Rebuild sidebar with new theme
         self.sidebar.destroy()

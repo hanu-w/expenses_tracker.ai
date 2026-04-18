@@ -54,6 +54,16 @@ class ExpenseDB:
             )
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS custom_categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                icon TEXT DEFAULT '📌',
+                color TEXT DEFAULT '#778ca3',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # Migration: Add bill_id to expenses if it doesn't exist (for existing DBs)
         cursor.execute("PRAGMA table_info(expenses)")
         columns = [col["name"] for col in cursor.fetchall()]
@@ -345,6 +355,35 @@ class ExpenseDB:
             cursor.execute("UPDATE expenses SET bill_id = NULL WHERE bill_id = ?", (bill_id,))
         
         cursor.execute("DELETE FROM bills WHERE id = ?", (bill_id,))
+        self.conn.commit()
+        self.clear_cache()
+
+    # ─── Custom Categories ────────────────────────────────────
+
+    def add_custom_category(self, name, icon="📌", color="#778ca3"):
+        """Add a new user-defined category. Returns new id, or None if duplicate."""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO custom_categories (name, icon, color) VALUES (?, ?, ?)",
+                (name.strip(), icon, color),
+            )
+            self.conn.commit()
+            self.clear_cache()
+            return cursor.lastrowid
+        except Exception:
+            return None  # Duplicate or error
+
+    def get_custom_categories(self):
+        """Return all user-defined categories ordered by name."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM custom_categories ORDER BY name")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def delete_custom_category(self, name):
+        """Delete a custom category by name."""
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM custom_categories WHERE name = ?", (name,))
         self.conn.commit()
         self.clear_cache()
 

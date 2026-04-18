@@ -7,6 +7,8 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from config import CURRENCY_SYMBOL, APP_VERSION
 from modules.theme import FONTS
+from modules.ui.components import AddCategoryDialog
+from modules import category_manager as cm
 
 
 class SettingsView(ctk.CTkFrame):
@@ -130,6 +132,13 @@ class SettingsView(ctk.CTkFrame):
             text_color=self.theme.get("success", "#00cec9"),
         )
         self.budget_msg.pack(fill="x", pady=(10, 0))
+
+        # ─── Categories Section ─────────────────────────────
+        self._section_header(content, "🏷️  Manage Categories")
+        self._content_ref = content  # Save ref for later refresh
+        self.cat_card_container = ctk.CTkFrame(content, fg_color="transparent")
+        self.cat_card_container.pack(fill="x", padx=28)
+        self._build_categories_section()
 
         # ─── Data Management Section ─────────────────────────
         self._section_header(content, "📁  Data Management")
@@ -334,3 +343,212 @@ class SettingsView(ctk.CTkFrame):
         for widget in self.winfo_children():
             widget.destroy()
         self._build_ui()
+
+    # ─── Categories Helpers ────────────────────────────────────
+
+    def _build_categories_section(self):
+        """Build or rebuild the categories management card."""
+        for widget in self.cat_card_container.winfo_children():
+            widget.destroy()
+
+        card = ctk.CTkFrame(
+            self.cat_card_container,
+            fg_color=self.theme.get("card", "#1a1a2e"),
+            corner_radius=16, border_width=1,
+            border_color=self.theme.get("border", "#2a2a3e"),
+        )
+        card.pack(fill="x")
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=24, pady=20)
+
+        # Description + Add button row
+        top_row = ctk.CTkFrame(inner, fg_color="transparent")
+        top_row.pack(fill="x", pady=(0, 14))
+
+        ctk.CTkLabel(
+            top_row,
+            text="Create and manage your own expense categories.",
+            font=FONTS["body"],
+            text_color=self.theme.get("text_secondary", "#b0b0c0"),
+            anchor="w",
+        ).pack(side="left", fill="x", expand=True)
+
+        ctk.CTkButton(
+            top_row, text="＋ New Category",
+            font=FONTS["small_bold"],
+            fg_color=self.theme.get("accent", "#6c5ce7"),
+            hover_color=self.theme.get("accent_hover", "#7d6ff0"),
+            text_color="#ffffff",
+            width=150, height=38, corner_radius=10,
+            command=self._on_open_add_category,
+        ).pack(side="right")
+
+        # Feedback label
+        self.cat_feedback = ctk.CTkLabel(
+            inner, text="", font=FONTS["small"],
+            text_color=self.theme.get("success", "#00cec9"), anchor="w"
+        )
+        self.cat_feedback.pack(fill="x", pady=(0, 8))
+
+        # Built-in categories (read-only chips)
+        from config import CATEGORIES as _BUILTIN
+        builtin_wrap = ctk.CTkFrame(inner, fg_color="transparent")
+        builtin_wrap.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            builtin_wrap, text="Built-in",
+            font=FONTS["small_bold"],
+            text_color=self.theme.get("text_muted", "#808098"),
+            anchor="w",
+        ).pack(fill="x", pady=(0, 6))
+
+        chip_row_builtin = ctk.CTkFrame(builtin_wrap, fg_color="transparent")
+        chip_row_builtin.pack(fill="x")
+        from config import CATEGORY_COLORS as _COLORS
+        for cat in _BUILTIN:
+            cat_color = _COLORS.get(cat, "#778ca3")
+            chip = ctk.CTkFrame(
+                chip_row_builtin,
+                fg_color=self.theme.get("surface", "#12121a"),
+                corner_radius=8, border_width=1,
+                border_color=self.theme.get("border", "#2a2a3e"),
+            )
+            chip.pack(side="left", padx=(0, 6), pady=3)
+            chip_inner = ctk.CTkFrame(chip, fg_color="transparent")
+            chip_inner.pack(padx=8, pady=5)
+            # Colored circle with initial
+            _C = 18
+            circle = ctk.CTkFrame(
+                chip_inner, width=_C, height=_C,
+                corner_radius=_C // 2, fg_color=cat_color,
+            )
+            circle.pack(side="left", padx=(0, 6))
+            circle.pack_propagate(False)
+            lbl = ctk.CTkLabel(
+                circle, text=cat[0].upper(),
+                font=("Segoe UI", 9, "bold"), text_color="#ffffff",
+            )
+            lbl.place(relx=0.5, rely=0.5, anchor="center")
+            ctk.CTkLabel(
+                chip_inner, text=cat,
+                font=FONTS["small"],
+                text_color=self.theme.get("text_secondary", "#b0b0c0"),
+            ).pack(side="left")
+
+        # Divider
+        ctk.CTkFrame(
+            inner, fg_color=self.theme.get("border", "#2a2a3e"), height=1
+        ).pack(fill="x", pady=(14, 12))
+
+        # Custom categories list
+        ctk.CTkLabel(
+            inner, text="Custom",
+            font=FONTS["small_bold"],
+            text_color=self.theme.get("text_muted", "#808098"),
+            anchor="w",
+        ).pack(fill="x", pady=(0, 8))
+
+        custom_cats = self.db.get_custom_categories()
+
+        if not custom_cats:
+            ctk.CTkLabel(
+                inner,
+                text="No custom categories yet. Click '\uff0b New Category' to create one.",
+                font=FONTS["body"],
+                text_color=self.theme.get("text_muted", "#808098"),
+                anchor="w",
+            ).pack(fill="x")
+        else:
+            self.cat_list_frame = ctk.CTkFrame(inner, fg_color="transparent")
+            self.cat_list_frame.pack(fill="x")
+            self._refresh_categories_list()
+
+    def _refresh_categories_list(self):
+        """Rebuild the custom categories list inside the settings card."""
+        if not hasattr(self, "cat_list_frame"):
+            # Re-build the entire section if list frame doesn't exist yet
+            self._build_categories_section()
+            return
+
+        for widget in self.cat_list_frame.winfo_children():
+            widget.destroy()
+
+        custom_cats = self.db.get_custom_categories()
+        for cat in custom_cats:
+            cat_color = cat.get("color", "#778ca3") or "#778ca3"
+            row = ctk.CTkFrame(
+                self.cat_list_frame,
+                fg_color=self.theme.get("surface", "#12121a"),
+                corner_radius=10, border_width=1,
+                border_color=self.theme.get("border", "#2a2a3e"),
+            )
+            row.pack(fill="x", pady=4)
+
+            inner_row = ctk.CTkFrame(row, fg_color="transparent")
+            inner_row.pack(fill="x", padx=16, pady=10)
+
+            # Colored circle with initial letter
+            _C = 28
+            circle = ctk.CTkFrame(
+                inner_row, width=_C, height=_C,
+                corner_radius=_C // 2, fg_color=cat_color,
+            )
+            circle.pack(side="left", padx=(0, 12))
+            circle.pack_propagate(False)
+            lbl = ctk.CTkLabel(
+                circle, text=cat["name"][0].upper() if cat["name"] else "?",
+                font=("Segoe UI", 11, "bold"), text_color="#ffffff",
+            )
+            lbl.place(relx=0.5, rely=0.5, anchor="center")
+
+            ctk.CTkLabel(
+                inner_row, text=cat["name"],
+                font=FONTS["body_bold"],
+                text_color=self.theme.get("text", "#f0f0f5"),
+                anchor="w",
+            ).pack(side="left", fill="x", expand=True)
+
+            ctk.CTkButton(
+                inner_row, text="Delete",
+                font=FONTS["small"],
+                width=72, height=30, corner_radius=8,
+                fg_color=self.theme.get("danger_bg", "#2e0a0a"),
+                hover_color=self.theme.get("danger", "#ff7675"),
+                text_color=self.theme.get("danger", "#ff7675"),
+                command=lambda n=cat["name"]: self._on_delete_category(n),
+            ).pack(side="right")
+
+    def _on_open_add_category(self):
+        """Open the AddCategoryDialog from the Settings panel."""
+        AddCategoryDialog(
+            self,
+            theme=self.theme,
+            on_created=self._on_category_created_settings,
+        )
+
+    def _on_category_created_settings(self, name: str, icon: str, color: str):
+        result = self.db.add_custom_category(name, icon, color)
+        if result is None:
+            self.cat_feedback.configure(
+                text=f'❌ Category "{name}" already exists',
+                text_color=self.theme.get("danger", "#ff7675"),
+            )
+        else:
+            self.cat_feedback.configure(
+                text=f'✅ Category "{name}" created!',
+                text_color=self.theme.get("success", "#00cec9"),
+            )
+            self._build_categories_section()
+        self.after(3000, lambda: self.cat_feedback.configure(text="") if self.cat_feedback.winfo_exists() else None)
+
+    def _on_delete_category(self, name: str):
+        """Delete a custom category after confirmation."""
+        from tkinter import messagebox
+        confirm = messagebox.askyesno(
+            "Delete Category",
+            f'Delete custom category "{name}"?\n\nExpenses in this category will keep the name but it won\'t appear in menus.',
+        )
+        if confirm:
+            self.db.delete_custom_category(name)
+            self._build_categories_section()
+
