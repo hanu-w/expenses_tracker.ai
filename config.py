@@ -5,8 +5,8 @@ Central configuration for app settings, categories, and defaults.
 
 # ─── App Info ────────────────────────────────────────────────
 APP_NAME = "ExpenseAI"
-APP_VERSION = "1.0.0"
-APP_TITLE = "💰 ExpenseAI — Smart Expense Tracker"
+APP_VERSION = "7.0.0"
+APP_TITLE = "💰 ExpenseAI — Smart Expense Tracker v7"
 
 # ─── Window Settings ─────────────────────────────────────────
 WINDOW_WIDTH = 1200

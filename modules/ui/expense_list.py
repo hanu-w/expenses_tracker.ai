@@ -7,7 +7,7 @@ import customtkinter as ctk
 from datetime import datetime, timedelta
 from config import CATEGORIES, CURRENCY_SYMBOL, DATE_FORMAT
 from modules.theme import FONTS
-from modules.ui.components import ExpenseCard, SearchBar, EmptyState, BillGroupCard, BillDetailPopup
+from modules.ui.components import ExpenseCard, SearchBar, EmptyState, ProjectGroupCard, ProjectDetailPopup
 
 
 class ExpenseListView(ctk.CTkFrame):
@@ -47,7 +47,7 @@ class ExpenseListView(ctk.CTkFrame):
 
         # View Mode Toggle
         self.view_toggle = ctk.CTkSegmentedButton(
-            header, values=["List", "Bills"],
+            header, values=["List", "Projects"],
             command=self._on_view_mode_change,
             selected_color=self.theme.get("accent", "#6c5ce7"),
             selected_hover_color=self.theme.get("accent_hover", "#7d6ff0"),
@@ -105,7 +105,7 @@ class ExpenseListView(ctk.CTkFrame):
             text_color=self.theme.get("text_secondary", "#b0b0c0"),
         ).pack(side="left", padx=(0, 8))
 
-        periods = ["All Time", "This Week", "This Month", "Last 3 Months"]
+        periods = ["All Time", "Today", "This Week", "This Month", "Last 3 Months"]
         self.period_var = ctk.StringVar(value="All Time")
         period_menu = ctk.CTkOptionMenu(
             filter_row, values=periods, variable=self.period_var,
@@ -120,6 +120,28 @@ class ExpenseListView(ctk.CTkFrame):
             command=self._on_period_change,
         )
         period_menu.pack(side="left")
+
+        # Add Sort Filter right after it
+        ctk.CTkLabel(
+            filter_row, text="Sort:", font=FONTS["body"],
+            text_color=self.theme.get("text_secondary", "#b0b0c0"),
+        ).pack(side="left", padx=(12, 8))
+
+        self.sort_var = ctk.StringVar(value="Newest First")
+        sort_options = ["Newest First", "Oldest First", "Highest Amount", "Lowest Amount"]
+        sort_menu = ctk.CTkOptionMenu(
+            filter_row, values=sort_options, variable=self.sort_var,
+            font=FONTS["body"], width=150, height=36, corner_radius=8,
+            fg_color=self.theme.get("input_bg", "#16162a"),
+            button_color=self.theme.get("accent", "#6c5ce7"),
+            button_hover_color=self.theme.get("accent_hover", "#7d6ff0"),
+            dropdown_fg_color=self.theme.get("surface", "#12121a"),
+            dropdown_hover_color=self.theme.get("card_hover", "#1f1f35"),
+            dropdown_text_color=self.theme.get("text", "#f0f0f5"),
+            text_color=self.theme.get("text", "#f0f0f5"),
+            command=self._on_sort_change,
+        )
+        sort_menu.pack(side="left")
 
         # Count label (right side)
         self.count_label = ctk.CTkLabel(
@@ -142,7 +164,9 @@ class ExpenseListView(ctk.CTkFrame):
         period = self.period_var.get()
         today = datetime.now()
 
-        if period == "This Week":
+        if period == "Today":
+            return today.strftime(DATE_FORMAT), today.strftime(DATE_FORMAT)
+        elif period == "This Week":
             start = today - timedelta(days=today.weekday())
             return start.strftime(DATE_FORMAT), today.strftime(DATE_FORMAT)
         elif period == "This Month":
@@ -164,8 +188,8 @@ class ExpenseListView(ctk.CTkFrame):
         category = self.category_var.get()
         start_date, end_date = self._get_date_range()
 
-        if self.view_mode == "Bills" and not append:
-            self._load_grouped_by_bill()
+        if self.view_mode == "Projects" and not append:
+            self._load_grouped_by_project()
             return
 
         # Standard List View logic
@@ -179,11 +203,22 @@ class ExpenseListView(ctk.CTkFrame):
         filtered_total = stats["total"]
         filtered_count = stats["count"]
         
+        sort_mapping = {
+            "Newest First": "date_desc",
+            "Oldest First": "date_asc",
+            "Highest Amount": "amount_desc",
+            "Lowest Amount": "amount_asc"
+        }
+        sort_by = sort_mapping.get(getattr(self, "sort_var", None) and self.sort_var.get(), "date_desc")
+        
+        large_threshold = self.db.get_large_expense_threshold()
+        
         expenses = self.db.get_expenses_filtered(
             category=category if category != "All" else None,
             start_date=start_date,
             end_date=end_date,
             search=self.current_search if self.current_search else None,
+            sort_by=sort_by,
             limit=self.page_size,
             offset=self.loaded_count
         )
@@ -198,7 +233,12 @@ class ExpenseListView(ctk.CTkFrame):
 
         if expenses:
             for exp in expenses:
-                card = ExpenseCard(self.list_frame, exp, theme=self.theme, on_delete=self._on_delete)
+                card = ExpenseCard(
+                    self.list_frame, exp, theme=self.theme, 
+                    on_delete=self._on_delete,
+                    on_update=self._on_update_expense,
+                    large_threshold=large_threshold
+                )
                 card.pack(fill="x", pady=4)
             self.loaded_count += len(expenses)
             
@@ -212,45 +252,53 @@ class ExpenseListView(ctk.CTkFrame):
         elif not append:
             self._show_empty_state()
 
-    def _load_grouped_by_bill(self):
-        """Load expenses grouped by bill."""
-        bills_summary = self.db.get_bill_summary()
+
+            
+    def _load_grouped_by_project(self):
+        """Render expenses grouped into ProjectGroupCards."""
+        self.count_label.configure(text="")
         
-        if not bills_summary:
-            self._show_empty_state("No Bills Found", "Create your first bill in the 'Add Expense' tab.")
+        start_date, end_date = self._get_date_range()
+        projects = self.db.get_bill_summary()
+        
+        if not projects:
+            EmptyState(
+                self.list_frame,
+                title="No Projects Yet",
+                message="Start a new Project Session from the Add View to group related expenses (like a trip or event).",
+                icon="📁",
+                theme=self.theme
+            ).pack(pady=40)
             return
 
-        for bill in bills_summary:
-            # Note: the get_bill_summary query was updated to include count alias potentially
-            # If not, we can calculate it from expenses
-            expenses = self.db.get_expenses_by_bill(bill["id"])
-            bill["count"] = len(expenses) # Ensure count is available
+        for p in projects:
+            # Filter the exact expenses for this project 
+            # Note: We reuse the DB `bill` mechanics underneath
+            project_expenses = self.db.get_expenses_by_bill(p["id"])
+            if not project_expenses:
+                continue
+                
+            card = ProjectGroupCard(
+                self.list_frame, 
+                project_data=p, 
+                expenses=project_expenses, 
+                theme=self.theme,
+                on_click=lambda pid=p["id"], pname=p["name"]: self._open_project_detail(pid, pname)
+            )
+            card.pack(fill="x", pady=6)
             
-            if expenses:
-                card = BillGroupCard(
-                    self.list_frame, bill, 
-                    theme=self.theme,
-                    on_click=self._open_bill_details
-                )
-                card.pack(fill="x", pady=10)
-
-        # Show unbilled expenses if any
-        unbilled = self.db.get_expenses_filtered(limit=100) # Simple fetch
-        unbilled = [e for e in unbilled if e.get("bill_id") is None]
-        
-        if unbilled:
-            spacer = ctk.CTkFrame(self.list_frame, height=40, fg_color="transparent")
-            spacer.pack(fill="x")
-            
-            ctk.CTkLabel(
-                self.list_frame, text="Individual Expenses",
-                font=FONTS["subheading"], text_color=self.theme.get("text_secondary", "#b0b0c0"),
-                anchor="w"
-            ).pack(fill="x", padx=10, pady=(0, 10))
-            
-            for exp in unbilled:
-                card = ExpenseCard(self.list_frame, exp, theme=self.theme, on_delete=self._on_delete)
-                card.pack(fill="x", pady=4)
+    def _open_project_detail(self, project_id, project_name):
+        """Open popup showing all expenses in a project."""
+        expenses = self.db.get_expenses_by_bill(project_id)
+        ProjectDetailPopup(
+            self.winfo_toplevel(),
+            project_id=project_id,
+            project_name=project_name,
+            expenses=expenses,
+            theme=self.theme,
+            db=self.db,
+            on_delete_expense=self._on_delete
+        )
 
     def _show_empty_state(self, title="No expenses found", message="Try adjusting your filters or search query."):
         EmptyState(
@@ -263,16 +311,9 @@ class ExpenseListView(ctk.CTkFrame):
             action_command=lambda: self.on_navigate("add_expense") if self.on_navigate else None
         ).pack(expand=True, fill="both", pady=40)
 
-    def _open_bill_details(self, bill_id):
-        """Open the detailed popup for a bill."""
-        BillDetailPopup(
-            self, bill_id, self.db, self.theme, 
-            on_delete_expense=self._on_delete
-        )
-
     def _on_view_mode_change(self, value):
         """Switch between List and Grouped view."""
-        self.view_mode = "List" if value == "List" else "Bills"
+        self.view_mode = "List" if value == "List" else "Projects"
         self._load_expenses()
 
     def _load_more(self):
@@ -290,6 +331,9 @@ class ExpenseListView(ctk.CTkFrame):
     def _on_period_change(self, value):
         self._load_expenses()
 
+    def _on_sort_change(self, value):
+        self._load_expenses()
+
     def _on_delete(self, expense_id):
         dialog = ctk.CTkInputDialog(text=f"Type 'yes' to confirm deletion:", title="Delete Expense")
         result = dialog.get_input()
@@ -297,6 +341,13 @@ class ExpenseListView(ctk.CTkFrame):
             self.db.delete_expense(expense_id)
             self._load_expenses()
             if self.on_data_changed: self.on_data_changed()
+            
+    def _on_update_expense(self, expense_id, data):
+        self.db.update_expense(
+            expense_id, data.get("amount"), data.get("category"), 
+            data.get("date"), data.get("note"), data.get("bill_id")
+        )
+        if self.on_data_changed: self.on_data_changed()
 
     def refresh(self, theme=None, **kwargs):
         if theme: self.theme = theme

@@ -4,6 +4,10 @@ Theme toggle, budget setting, CSV export/import, data management.
 """
 
 import customtkinter as ctk
+import time
+import os
+import re
+from datetime import datetime, timedelta
 from tkinter import filedialog, messagebox
 from config import CURRENCY_SYMBOL, APP_VERSION
 from modules.theme import FONTS
@@ -45,15 +49,15 @@ class SettingsView(ctk.CTkFrame):
             anchor="w"
         ).pack(side="left")
 
-        # ─── Appearance Section ──────────────────────────────
-        self._section_header(content, "🎨  Appearance")
-
+        # ─── Appearance & Localization ──────────────────────────────
+        self._section_header(content, "🎨  Appearance & Localization")
         appearance_card = self._card(content)
+        
+        # Dark Mode Row
+        theme_row = ctk.CTkFrame(appearance_card, fg_color="transparent")
+        theme_row.pack(fill="x", padx=24, pady=(20, 10))
 
-        row = ctk.CTkFrame(appearance_card, fg_color="transparent")
-        row.pack(fill="x", padx=24, pady=20)
-
-        left = ctk.CTkFrame(row, fg_color="transparent")
+        left = ctk.CTkFrame(theme_row, fg_color="transparent")
         left.pack(side="left", fill="x", expand=True)
 
         ctk.CTkLabel(
@@ -68,7 +72,7 @@ class SettingsView(ctk.CTkFrame):
         ).pack(fill="x", pady=(4, 0))
 
         self.theme_switch = ctk.CTkSwitch(
-            row, text="",
+            theme_row, text="",
             onvalue="dark", offvalue="light",
             command=self._on_theme_toggle,
             progress_color=self.theme.get("accent", "#6c5ce7"),
@@ -81,6 +85,45 @@ class SettingsView(ctk.CTkFrame):
             self.theme_switch.select()
         else:
             self.theme_switch.deselect()
+
+        # Divider
+        ctk.CTkFrame(appearance_card, fg_color=self.theme.get("border", "#2a2a3e"), height=1).pack(fill="x", padx=24, pady=10)
+
+        # Currency Row
+        currency_row = ctk.CTkFrame(appearance_card, fg_color="transparent")
+        currency_row.pack(fill="x", padx=24, pady=(10, 20))
+
+        c_left = ctk.CTkFrame(currency_row, fg_color="transparent")
+        c_left.pack(side="left", fill="x", expand=True)
+
+        ctk.CTkLabel(
+            c_left, text="Currency Symbol", font=FONTS["body_bold"],
+            text_color=self.theme.get("text", "#f0f0f5"), anchor="w"
+        ).pack(fill="x")
+
+        ctk.CTkLabel(
+            c_left, text="Set your preferred currency format",
+            font=FONTS["body"],
+            text_color=self.theme.get("text_secondary", "#b0b0c0"), anchor="w"
+        ).pack(fill="x", pady=(4, 0))
+
+        self.currency_var = ctk.StringVar(value=CURRENCY_SYMBOL)
+        self.currency_menu = ctk.CTkOptionMenu(
+            currency_row,
+            values=["₹", "$", "€", "£", "¥", "A$"],
+            variable=self.currency_var,
+            width=100, height=36,
+            command=self._on_currency_change,
+            font=FONTS["body_bold"],
+            fg_color=self.theme.get("input_bg", "#16162a"),
+            button_color=self.theme.get("border", "#2a2a3e"),
+            button_hover_color=self.theme.get("surface", "#12121a"),
+            dropdown_fg_color=self.theme.get("surface", "#12121a"),
+            dropdown_hover_color=self.theme.get("card_hover", "#1f1f35"),
+            dropdown_text_color=self.theme.get("text", "#f0f0f5"),
+            text_color=self.theme.get("text", "#f0f0f5"),
+        )
+        self.currency_menu.pack(side="right")
 
         # ─── Budget Section ──────────────────────────────────
         self._section_header(content, "💰  Monthly Budget")
@@ -110,7 +153,7 @@ class SettingsView(ctk.CTkFrame):
         self.budget_entry = ctk.CTkEntry(
             budget_row, textvariable=self.budget_var,
             placeholder_text="e.g., 10000",
-            font=FONTS["body"], width=220, height=42, corner_radius=10,
+            font=FONTS["body"], width=180, height=42, corner_radius=10,
             fg_color=self.theme.get("input_bg", "#16162a"),
             border_color=self.theme.get("input_border", "#2a2a40"),
             text_color=self.theme.get("text", "#f0f0f5"),
@@ -125,7 +168,17 @@ class SettingsView(ctk.CTkFrame):
             text_color="#ffffff", width=90, height=42, corner_radius=10,
             command=self._on_save_budget,
         )
-        save_btn.pack(side="left")
+        save_btn.pack(side="left", padx=(0, 10))
+        
+        reset_btn = ctk.CTkButton(
+            budget_row, text="Reset", font=FONTS["button"],
+            fg_color=self.theme.get("surface", "#12121a"),
+            hover_color=self.theme.get("danger_bg", "#2e0a0a"),
+            border_color=self.theme.get("border", "#2a2a3e"), border_width=1,
+            text_color=self.theme.get("text", "#f0f0f5"), width=90, height=42, corner_radius=10,
+            command=self._on_reset_budget,
+        )
+        reset_btn.pack(side="left")
 
         self.budget_msg = ctk.CTkLabel(
             budget_inner, text="", font=FONTS["body"],
@@ -141,69 +194,96 @@ class SettingsView(ctk.CTkFrame):
         self._build_categories_section()
 
         # ─── Data Management Section ─────────────────────────
-        self._section_header(content, "📁  Data Management")
+        self._section_header(content, "📁  Data & Security")
 
         data_card = self._card(content)
         data_inner = ctk.CTkFrame(data_card, fg_color="transparent")
         data_inner.pack(fill="x", padx=24, pady=20)
 
+        # Backup Status
+        self.backup_banner = ctk.CTkFrame(data_inner, fg_color="transparent")
+        self.backup_banner.pack(fill="x", pady=(0, 20))
+        self._refresh_backup_status()
+
+        # Divider
+        ctk.CTkFrame(data_inner, fg_color=self.theme.get("border", "#2a2a3e"), height=1).pack(fill="x", pady=(0, 15))
+
         # Export
         export_row = ctk.CTkFrame(data_inner, fg_color="transparent")
-        export_row.pack(fill="x", pady=(0, 12))
+        export_row.pack(fill="x", pady=(0, 15))
 
+        e_left = ctk.CTkFrame(export_row, fg_color="transparent")
+        e_left.pack(side="left", fill="x", expand=True)
         ctk.CTkLabel(
-            export_row, text="Export all expenses to CSV file",
+            e_left, text="Backup / Export Data", font=FONTS["body_bold"],
+            text_color=self.theme.get("text", "#f0f0f5"), anchor="w"
+        ).pack(fill="x")
+        ctk.CTkLabel(
+            e_left, text="Save your expenses to a secure CSV file",
             font=FONTS["body"],
             text_color=self.theme.get("text_secondary", "#b0b0c0"), anchor="w"
-        ).pack(side="left", fill="x", expand=True)
+        ).pack(fill="x", pady=(2, 0))
 
         ctk.CTkButton(
             export_row, text="📥 Export CSV", font=FONTS["button"],
             fg_color=self.theme.get("success", "#00cec9"),
             hover_color="#00b8b3", text_color="#ffffff",
-            width=150, height=40, corner_radius=10,
+            width=140, height=40, corner_radius=10,
             command=self._on_export,
         ).pack(side="right")
 
         # Import
         import_row = ctk.CTkFrame(data_inner, fg_color="transparent")
-        import_row.pack(fill="x", pady=(0, 12))
+        import_row.pack(fill="x", pady=(0, 15))
 
+        i_left = ctk.CTkFrame(import_row, fg_color="transparent")
+        i_left.pack(side="left", fill="x", expand=True)
         ctk.CTkLabel(
-            import_row, text="Import expenses from a CSV file",
+            i_left, text="Restore / Import Data", font=FONTS["body_bold"],
+            text_color=self.theme.get("text", "#f0f0f5"), anchor="w"
+        ).pack(fill="x")
+        ctk.CTkLabel(
+            i_left, text="Restore your expenses from a CSV file",
             font=FONTS["body"],
             text_color=self.theme.get("text_secondary", "#b0b0c0"), anchor="w"
-        ).pack(side="left", fill="x", expand=True)
+        ).pack(fill="x", pady=(2, 0))
 
         ctk.CTkButton(
             import_row, text="📤 Import CSV", font=FONTS["button"],
-            fg_color=self.theme.get("primary", "#a29bfe"),
-            hover_color="#9084f0", text_color="#ffffff",
-            width=150, height=40, corner_radius=10,
+            fg_color=self.theme.get("surface", "#12121a"),
+            border_width=1, border_color=self.theme.get("border", "#2a2a3e"),
+            hover_color=self.theme.get("card_hover", "#1f1f35"), text_color=self.theme.get("text", "#f0f0f5"),
+            width=140, height=40, corner_radius=10,
             command=self._on_import,
         ).pack(side="right")
 
         # Divider
         ctk.CTkFrame(
             data_inner, fg_color=self.theme.get("border", "#2a2a3e"), height=1
-        ).pack(fill="x", pady=10)
+        ).pack(fill="x", pady=15)
 
         # Clear All
         clear_row = ctk.CTkFrame(data_inner, fg_color="transparent")
         clear_row.pack(fill="x", pady=(0, 0))
 
+        c_left = ctk.CTkFrame(clear_row, fg_color="transparent")
+        c_left.pack(side="left", fill="x", expand=True)
         ctk.CTkLabel(
-            clear_row, text="⚠️ Clear all expense data (cannot be undone)",
-            font=FONTS["body"],
+            c_left, text="Factory Reset", font=FONTS["body_bold"],
             text_color=self.theme.get("danger", "#ff7675"), anchor="w"
-        ).pack(side="left", fill="x", expand=True)
+        ).pack(fill="x")
+        ctk.CTkLabel(
+            c_left, text="⚠️ Permanently wipe all your expense data",
+            font=FONTS["body"],
+            text_color=self.theme.get("text_secondary", "#b0b0c0"), anchor="w"
+        ).pack(fill="x", pady=(2, 0))
 
         ctk.CTkButton(
             clear_row, text="🗑️ Clear All", font=FONTS["button"],
             fg_color=self.theme.get("danger_bg", "#2e0a0a"),
             hover_color=self.theme.get("danger", "#ff7675"),
             text_color=self.theme.get("danger", "#ff7675"),
-            width=150, height=40, corner_radius=10,
+            width=140, height=40, corner_radius=10,
             command=self._on_clear_all,
         ).pack(side="right")
 
@@ -217,6 +297,8 @@ class SettingsView(ctk.CTkFrame):
         info_lines = [
             f"ExpenseAI v{APP_VERSION}",
             "Smart Expense Tracker — Built with Python",
+            "",
+            "🚀 Major UI & Performance Upgrade",
             "",
             "Tech Stack:",
             "• CustomTkinter (UI Framework)",
@@ -294,6 +376,8 @@ class SettingsView(ctk.CTkFrame):
         if filepath:
             success = self.db.export_to_csv(filepath)
             if success:
+                self.db.set_setting("last_export_time", str(time.time()))
+                self._refresh_backup_status()
                 messagebox.showinfo("Export", f"✅ Expenses exported successfully!\n\n{filepath}")
             else:
                 messagebox.showwarning("Export", "⚠️ No expenses to export.")
@@ -333,6 +417,68 @@ class SettingsView(ctk.CTkFrame):
             messagebox.showinfo("Cleared", "✅ All expense data has been cleared.")
             if self.on_data_changed:
                 self.on_data_changed()
+
+    def _on_reset_budget(self):
+        """Reset budget to 0."""
+        self.budget_var.set("")
+        self.db.set_setting("monthly_budget", "0")
+        self.budget_msg.configure(
+            text="✅ Budget cleared",
+            text_color=self.theme.get("success", "#00cec9"),
+        )
+        self.after(4000, lambda: self.budget_msg.configure(text=""))
+        
+    def _on_currency_change(self, value):
+        """Update config.py with new currency symbol."""
+        try:
+            config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config.py")
+            with open(config_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            # Replace CURRENCY_SYMBOL = "..."
+            new_content = re.sub(r'CURRENCY_SYMBOL\s*=\s*".*"', f'CURRENCY_SYMBOL = "{value}"', content)
+            with open(config_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+                
+            messagebox.showinfo("Restart Required", 
+                                "Currency updated successfully!\n\nPlease restart the application to apply the new format globally.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to update currency: {e}")
+
+    def _refresh_backup_status(self):
+        """Update the UI element showing the last backup time and warning."""
+        for widget in self.backup_banner.winfo_children():
+            widget.destroy()
+            
+        last_export = self.db.get_setting("last_export_time", None)
+        status_text = "Never backed up"
+        is_safe = False
+        
+        if last_export:
+            try:
+                export_time = datetime.fromtimestamp(float(last_export))
+                days_ago = (datetime.now() - export_time).days
+                if days_ago < 7:
+                    status_text = f"Last backup: {export_time.strftime('%b %d, %Y (%I:%M %p)')}"
+                    is_safe = True
+                else:
+                    status_text = f"⚠️ It's been {days_ago} days since your last backup. We recommend exporting now!"
+            except:
+                pass
+                
+        if is_safe:
+            card_bg = self.theme.get("success_bg", "#0a2e2d")
+            text_color = self.theme.get("success", "#00cec9")
+        else:
+            card_bg = self.theme.get("warning_bg", "#3d2e15")
+            text_color = self.theme.get("warning", "#ffeaa7")
+
+        lbl = ctk.CTkLabel(
+            self.backup_banner, text=status_text,
+            font=FONTS["body_bold"],
+            text_color=text_color, anchor="center",
+            corner_radius=8, fg_color=card_bg, pady=12
+        )
+        lbl.pack(fill="x")
 
     def refresh(self, theme=None, app_mode=None, **kwargs):
         """Rebuild with updated theme."""

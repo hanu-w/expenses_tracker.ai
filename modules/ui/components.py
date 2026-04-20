@@ -70,97 +70,210 @@ class StatCard(ctk.CTkFrame):
 
 
 class ExpenseCard(ctk.CTkFrame):
-    """A single expense item card with category badge, amount, date, delete."""
+    """A single expense item card with inline editing, category badge, amount, date, delete."""
 
-    def __init__(self, master, expense_data, theme=None, on_delete=None, **kwargs):
+    def __init__(self, master, expense_data, theme=None, on_delete=None, on_update=None, large_threshold=0, **kwargs):
         self.theme = theme or {}
-        self.expense_data = expense_data
+        self.expense_data = expense_data.copy()
         self.on_delete = on_delete
+        self.on_update = on_update
+        self.large_threshold = large_threshold
+        
+        self.bg = self.theme.get("card", "#1a1a2e")
+        self.hover_bg = self.theme.get("card_hover", "#1f1f35")
+        
+        # Decide border/highlight
+        amount = self.expense_data.get("amount", 0)
+        self.is_large = (self.large_threshold > 0 and amount >= self.large_threshold)
+        
+        if self.is_large:
+            self.border_color = self.theme.get("accent", "#6c5ce7")
+            self.border_width = 2
+            self.text_color_amt = self.theme.get("accent", "#6c5ce7")
+        else:
+            self.border_color = self.theme.get("border", "#2a2a3e")
+            self.border_width = 1
+            self.text_color_amt = self.theme.get("text", "#f0f0f5")
 
-        bg = self.theme.get("card", "#1a1a2e")
-        hover_bg = self.theme.get("card_hover", "#1f1f35")
+        super().__init__(master, fg_color=self.bg, corner_radius=12, border_width=self.border_width, border_color=self.border_color, **kwargs)
+        
+        self.is_editing = False
+        self._build_ui()
+        
+        # Hover effect
+        self.bind("<Enter>", lambda e: self.configure(fg_color=self.hover_bg) if not self.is_editing else None)
+        self.bind("<Leave>", lambda e: self.configure(fg_color=self.bg) if not self.is_editing else None)
+        
+    def _bind_edit_click(self, widget):
+        """Recursively bind double-click to enable edit mode, with cross-platform support."""
+        # Double-1 works better in Windows/Linux, some system configurations need <Double-Button-1>
+        widget.bind("<Double-Button-1>", self._on_double_click)
+        widget.bind("<Double-1>", self._on_double_click)
+        for child in widget.winfo_children():
+            self._bind_edit_click(child)
 
-        super().__init__(master, fg_color=bg, corner_radius=12, **kwargs)
-        self.configure(border_width=1, border_color=self.theme.get("border", "#2a2a3e"))
+    def _build_ui(self):
+        for w in self.winfo_children(): w.destroy()
+        
+        self.inner = ctk.CTkFrame(self, fg_color="transparent")
+        self.inner.pack(fill="both", expand=True, padx=20, pady=12)
 
-        inner = ctk.CTkFrame(self, fg_color="transparent")
-        inner.pack(fill="both", expand=True, padx=20, pady=12)
+        # Left side
+        self.left = ctk.CTkFrame(self.inner, fg_color="transparent")
+        self.left.pack(side="left", fill="both", expand=True)
 
-        # Left side: category badge + note
-        left = ctk.CTkFrame(inner, fg_color="transparent")
-        left.pack(side="left", fill="both", expand=True)
+        category = self.expense_data.get("category", "Other")
+        
+        self.cat_row = ctk.CTkFrame(self.left, fg_color="transparent")
+        self.cat_row.pack(fill="x", anchor="w")
 
-        category = expense_data.get("category", "Other")
-        cat_color = CATEGORY_COLORS.get(category, "#778ca3")
-        cat_icon = CATEGORY_ICONS.get(category, "📌")
-
-        # Category row
-        cat_row = ctk.CTkFrame(left, fg_color="transparent")
-        cat_row.pack(fill="x", anchor="w")
-
-        badge = CategoryBadge(cat_row, category=category, theme=self.theme)
+        badge = CategoryBadge(self.cat_row, category=category, theme=self.theme)
         badge.pack(side="left")
 
-        # Date
-        date_str = expense_data.get("date", "")
+        date_str = self.expense_data.get("date", "")
         try:
             from datetime import datetime
             parsed = datetime.strptime(date_str, "%Y-%m-%d")
             display_date = parsed.strftime("%d %b %Y")
-        except (ValueError, TypeError):
+        except Exception:
             display_date = date_str
 
         date_label = ctk.CTkLabel(
-            cat_row, text=f"  •  {display_date}", font=FONTS["small"],
+            self.cat_row, text=f"  •  {display_date}", font=FONTS["small"],
             text_color=self.theme.get("text_secondary", "#b0b0c0")
         )
         date_label.pack(side="left", padx=(8, 0))
 
-        # Note
-        note = expense_data.get("note", "")
+        note = self.expense_data.get("note", "")
         if note:
             note_label = ctk.CTkLabel(
-                left, text=note,
-                font=FONTS["body"],
+                self.left, text=note, font=FONTS["body"],
                 text_color=self.theme.get("text", "#f0f0f5"),
-                anchor="w",
-                justify="left",
-                wraplength=500  # Allows wrapping for long notes
+                anchor="w", justify="left", wraplength=500
             )
             note_label.pack(fill="x", anchor="w", pady=(6, 0))
 
-        # Right side: amount + delete
-        right = ctk.CTkFrame(inner, fg_color="transparent")
-        right.pack(side="right")
+        # Right side
+        self.right = ctk.CTkFrame(self.inner, fg_color="transparent")
+        self.right.pack(side="right")
 
-        amount = expense_data.get("amount", 0)
+        amount = self.expense_data.get("amount", 0)
         amount_label = ctk.CTkLabel(
-            right, text=f"{CURRENCY_SYMBOL}{amount:,.2f}",
-            font=FONTS["title"],
-            text_color=self.theme.get("text", "#f0f0f5")
+            self.right, text=f"{CURRENCY_SYMBOL}{amount:,.2f}",
+            font=FONTS["title"], text_color=self.text_color_amt
         )
         amount_label.pack(side="left", padx=(0, 14))
 
-        if on_delete:
+        if self.on_delete:
             del_btn = ctk.CTkButton(
-                right, text="✕", width=34, height=34,
-                font=("Segoe UI", 14, "bold"),
+                self.right, text="✕", width=34, height=34, font=("Segoe UI", 14, "bold"),
                 fg_color=self.theme.get("danger_bg", "#2e0a0a"),
                 text_color=self.theme.get("danger", "#ff7675"),
                 hover_color=self.theme.get("danger", "#ff7675"),
-                corner_radius=8,
-                command=lambda: on_delete(expense_data.get("id")),
+                corner_radius=8, command=lambda: self.on_delete(self.expense_data.get("id"))
             )
             del_btn.pack(side="left")
 
-        # Hover effect
-        def on_enter(e):
-            self.configure(fg_color=hover_bg)
-        def on_leave(e):
-            self.configure(fg_color=bg)
+        # Bind editable elements
+        self._bind_edit_click(self)
 
-        self.bind("<Enter>", on_enter)
-        self.bind("<Leave>", on_leave)
+    def _on_double_click(self, e):
+        if not self.is_editing and self.on_update:
+            self._enable_edit()
+
+    def _enable_edit(self):
+        self.is_editing = True
+        self.configure(fg_color=self.bg) # Reset hover
+        for w in self.inner.winfo_children(): w.destroy()
+
+        # Edit UI
+        self.edit_left = ctk.CTkFrame(self.inner, fg_color="transparent")
+        self.edit_left.pack(side="left", fill="both", expand=True)
+
+        # Category OptionMenu
+        from config import CATEGORIES
+        self.cat_var = ctk.StringVar(value=self.expense_data.get("category", "Other"))
+        
+        # Check if category is standard, else add it to options
+        options = list(CATEGORIES)
+        if self.cat_var.get() not in options:
+            options.append(self.cat_var.get())
+            
+        cat_menu = ctk.CTkOptionMenu(
+            self.edit_left, values=options, variable=self.cat_var,
+            font=FONTS["body"], 
+            fg_color=self.theme.get("input_bg", "#16162a"), button_color=self.theme.get("accent", "#6c5ce7"),
+            text_color=self.theme.get("text", "#f0f0f5"), height=32, corner_radius=6
+        )
+        cat_menu.pack(side="left", padx=(0, 10))
+
+        # Note Entry
+        self.note_var = ctk.StringVar(value=self.expense_data.get("note", ""))
+        note_entry = ctk.CTkEntry(
+            self.edit_left, textvariable=self.note_var, font=FONTS["body"],
+            fg_color=self.theme.get("input_bg", "#16162a"), border_width=0,
+            text_color=self.theme.get("text", "#f0f0f5"), height=32, placeholder_text="Note"
+        )
+        note_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+
+        # Right side
+        self.edit_right = ctk.CTkFrame(self.inner, fg_color="transparent")
+        self.edit_right.pack(side="right")
+
+        # Amount Entry
+        ctk.CTkLabel(self.edit_right, text=CURRENCY_SYMBOL, font=FONTS["body"]).pack(side="left", padx=(0, 4))
+        self.amt_var = ctk.StringVar(value=str(self.expense_data.get("amount", 0)))
+        amt_entry = ctk.CTkEntry(
+            self.edit_right, textvariable=self.amt_var, font=FONTS["body"],
+            fg_color=self.theme.get("input_bg", "#16162a"), border_width=0,
+            text_color=self.theme.get("text", "#f0f0f5"), height=32, width=80
+        )
+        amt_entry.pack(side="left", padx=(0, 10))
+
+        # Save/Cancel
+        ctk.CTkButton(
+            self.edit_right, text="✓", width=32, height=32, font=("Segoe UI", 14),
+            fg_color=self.theme.get("success", "#00cec9"), hover_color=self.theme.get("success", "#00cec9"),
+            command=self._save_edit
+        ).pack(side="left", padx=(0, 4))
+
+        ctk.CTkButton(
+            self.edit_right, text="✕", width=32, height=32, font=("Segoe UI", 14),
+            fg_color=self.theme.get("surface", "#12121a"), hover_color=self.theme.get("danger", "#ff7675"),
+            command=self._cancel_edit
+        ).pack(side="left")
+
+    def _save_edit(self):
+        try:
+            new_amt = float(self.amt_var.get())
+            new_cat = self.cat_var.get()
+            new_note = self.note_var.get()
+        except ValueError:
+            return  # invalid amount
+        
+        self.expense_data["amount"] = new_amt
+        self.expense_data["category"] = new_cat
+        self.expense_data["note"] = new_note
+        self.is_editing = False
+        
+        if self.on_update:
+            self.on_update(self.expense_data.get("id"), self.expense_data)
+            
+        # Rebuild view
+        amount = self.expense_data.get("amount", 0)
+        self.is_large = (self.large_threshold > 0 and amount >= self.large_threshold)
+        if self.is_large:
+            self.configure(border_color=self.theme.get("accent", "#6c5ce7"), border_width=2)
+            self.text_color_amt = self.theme.get("accent", "#6c5ce7")
+        else:
+            self.configure(border_color=self.theme.get("border", "#2a2a3e"), border_width=1)
+            self.text_color_amt = self.theme.get("text", "#f0f0f5")
+            
+        self._build_ui()
+
+    def _cancel_edit(self):
+        self.is_editing = False
+        self._build_ui()
 
 
 class CategoryBadge(ctk.CTkFrame):
@@ -287,7 +400,7 @@ class SearchBar(ctk.CTkFrame):
 
 
 class BudgetTrackerCard(ctk.CTkFrame):
-    """Monthly budget tracker with progress bar, spent/remaining, and warning."""
+    """Monthly budget tracker with progress bar, spent/remaining, predictive warning, and detailed metrics."""
 
     # Progress bar color thresholds
     COLOR_GREEN = "#00b894"
@@ -296,22 +409,34 @@ class BudgetTrackerCard(ctk.CTkFrame):
 
     def __init__(self, master, budget, spent, theme=None, **kwargs):
         self.theme = theme or {}
-        self.budget = budget
-        self.spent = spent
-        self.remaining = max(budget - spent, 0)
-        self.pct = (spent / budget * 100) if budget > 0 else 0
-
         bg = self.theme.get("card", "#1a1a2e")
         super().__init__(master, fg_color=bg, corner_radius=16, **kwargs)
         self.configure(border_width=1, border_color=self.theme.get("border", "#2a2a3e"))
+        self.update_data(budget, spent)
 
-        self._build_ui()
+    def _calculate_metrics(self):
+        from datetime import datetime
+        import calendar
+        
+        self.remaining = max(self.budget - self.spent, 0)
+        self.pct = (self.spent / self.budget * 100) if self.budget > 0 else 0
+
+        today = datetime.now()
+        self.days_in_month = calendar.monthrange(today.year, today.month)[1]
+        self.days_passed = today.day
+        self.days_remaining = self.days_in_month - self.days_passed
+        
+        self.daily_rate = self.spent / self.days_passed if self.days_passed > 0 else 0
+        self.predicted_total = self.spent + (self.daily_rate * self.days_remaining)
+        self.will_exceed = self.predicted_total > self.budget and self.budget > 0
+        
+        self.rec_limit = self.remaining / self.days_remaining if self.days_remaining > 0 else self.remaining
 
     def _get_bar_color(self):
         """Return progress bar color based on percentage."""
         if self.pct >= 90:
             return self.COLOR_RED
-        elif self.pct >= 70:
+        elif self.pct >= 60:
             return self.COLOR_YELLOW
         return self.COLOR_GREEN
 
@@ -321,14 +446,15 @@ class BudgetTrackerCard(ctk.CTkFrame):
             return ("🚨", "Over Budget!", self.theme.get("danger", "#ff7675"))
         elif self.pct >= 90:
             return ("⚠️", "Critical — Nearly Exhausted", self.theme.get("danger", "#ff7675"))
-        elif self.pct >= 70:
+        elif self.pct >= 60:
             return ("⚡", "Caution — Approaching Limit", self.theme.get("warning", "#ffeaa7"))
-        elif self.pct >= 50:
-            return ("📊", "On Track", self.theme.get("success", "#00cec9"))
         return ("✅", "Well Under Budget", self.theme.get("success", "#00cec9"))
 
     def _build_ui(self):
         """Build the budget tracker card layout."""
+        for widget in self.winfo_children():
+            widget.destroy()
+
         inner = ctk.CTkFrame(self, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=24, pady=20)
 
@@ -355,22 +481,15 @@ class BudgetTrackerCard(ctk.CTkFrame):
         bar_frame.pack(fill="x", pady=(14, 0))
 
         bar_bg = ctk.CTkFrame(
-            bar_frame,
-            fg_color=self.theme.get("input_bg", "#16162a"),
-            corner_radius=8,
-            height=18,
+            bar_frame, fg_color=self.theme.get("input_bg", "#16162a"),
+            corner_radius=8, height=18,
         )
         bar_bg.pack(fill="x")
         bar_bg.pack_propagate(False)
 
-        # Filled portion
         fill_pct = min(self.pct, 100) / 100.0
         if fill_pct > 0:
-            bar_fill = ctk.CTkFrame(
-                bar_bg,
-                fg_color=self._get_bar_color(),
-                corner_radius=8,
-            )
+            bar_fill = ctk.CTkFrame(bar_bg, fg_color=self._get_bar_color(), corner_radius=8)
             bar_fill.place(relx=0, rely=0, relheight=1.0, relwidth=fill_pct)
 
         # ─── Stats Row ───────────────────────────────────────
@@ -381,98 +500,58 @@ class BudgetTrackerCard(ctk.CTkFrame):
         # Spent
         spent_col = ctk.CTkFrame(stats_row, fg_color="transparent")
         spent_col.grid(row=0, column=0, sticky="nsw")
-
-        ctk.CTkLabel(
-            spent_col, text="Spent",
-            font=FONTS["small"],
-            text_color=self.theme.get("text_muted", "#808098"),
-            anchor="w",
-        ).pack(anchor="w")
-
-        ctk.CTkLabel(
-            spent_col, text=f"{CURRENCY_SYMBOL}{self.spent:,.2f}",
-            font=FONTS["body_bold"],
-            text_color=self._get_bar_color(),
-            anchor="w",
-        ).pack(anchor="w")
+        ctk.CTkLabel(spent_col, text="Spent", font=FONTS["small"], text_color=self.theme.get("text_muted", "#808098"), anchor="w").pack(anchor="w")
+        ctk.CTkLabel(spent_col, text=f"{CURRENCY_SYMBOL}{self.spent:,.2f}", font=FONTS["body_bold"], text_color=self._get_bar_color(), anchor="w").pack(anchor="w")
 
         # Remaining
         remain_col = ctk.CTkFrame(stats_row, fg_color="transparent")
         remain_col.grid(row=0, column=1, sticky="ns")
-
-        ctk.CTkLabel(
-            remain_col, text="Remaining",
-            font=FONTS["small"],
-            text_color=self.theme.get("text_muted", "#808098"),
-        ).pack()
-
+        ctk.CTkLabel(remain_col, text="Remaining", font=FONTS["small"], text_color=self.theme.get("text_muted", "#808098")).pack()
         remain_color = self.theme.get("success", "#00cec9") if self.remaining > 0 else self.theme.get("danger", "#ff7675")
-        ctk.CTkLabel(
-            remain_col, text=f"{CURRENCY_SYMBOL}{self.remaining:,.2f}",
-            font=FONTS["body_bold"],
-            text_color=remain_color,
-        ).pack()
+        ctk.CTkLabel(remain_col, text=f"{CURRENCY_SYMBOL}{self.remaining:,.2f}", font=FONTS["body_bold"], text_color=remain_color).pack()
 
         # Budget total
         budget_col = ctk.CTkFrame(stats_row, fg_color="transparent")
         budget_col.grid(row=0, column=2, sticky="nse")
+        ctk.CTkLabel(budget_col, text="Budget", font=FONTS["small"], text_color=self.theme.get("text_muted", "#808098"), anchor="e").pack(anchor="e")
+        ctk.CTkLabel(budget_col, text=f"{CURRENCY_SYMBOL}{self.budget:,.2f}", font=FONTS["body_bold"], text_color=self.theme.get("text", "#f0f0f5"), anchor="e").pack(anchor="e")
 
-        ctk.CTkLabel(
-            budget_col, text="Budget",
-            font=FONTS["small"],
-            text_color=self.theme.get("text_muted", "#808098"),
-            anchor="e",
-        ).pack(anchor="e")
+        # ─── Detailed Metrics ────────────────────────────────
+        metrics_row = ctk.CTkFrame(inner, fg_color="transparent")
+        metrics_row.pack(fill="x", pady=(16, 0))
+        metrics_row.columnconfigure((0, 1, 2), weight=1, uniform="metric_col")
 
-        ctk.CTkLabel(
-            budget_col, text=f"{CURRENCY_SYMBOL}{self.budget:,.2f}",
-            font=FONTS["body_bold"],
-            text_color=self.theme.get("text", "#f0f0f5"),
-            anchor="e",
-        ).pack(anchor="e")
+        # % Used
+        m1 = ctk.CTkFrame(metrics_row, fg_color="transparent")
+        m1.grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(m1, text=f"• {self.pct:.1f}% Used", font=FONTS["small"], text_color=self.theme.get("text_secondary", "#b0b0c0")).pack(anchor="w")
+        
+        # Days Remaining
+        m2 = ctk.CTkFrame(metrics_row, fg_color="transparent")
+        m2.grid(row=0, column=1, sticky="w")
+        ctk.CTkLabel(m2, text=f"• {self.days_remaining} Days Left", font=FONTS["small"], text_color=self.theme.get("text_secondary", "#b0b0c0")).pack(anchor="w")
+        
+        # Recommended Limit
+        m3 = ctk.CTkFrame(metrics_row, fg_color="transparent")
+        m3.grid(row=0, column=2, sticky="e")
+        ctk.CTkLabel(m3, text=f"• Rec Limit: {CURRENCY_SYMBOL}{self.rec_limit:,.0f}/day", font=FONTS["small"], text_color=self.theme.get("text_secondary", "#b0b0c0")).pack(anchor="e")
 
-        # ─── Status Message ──────────────────────────────────
-        icon, label, color = self._get_status_info()
-
-        status_frame = ctk.CTkFrame(
-            inner,
-            fg_color=_blend_color(color, self.theme.get("card", "#1a1a2e"), 0.12),
-            corner_radius=10,
-        )
-        status_frame.pack(fill="x", pady=(14, 0))
-
-        ctk.CTkLabel(
-            status_frame, text=f"{icon}  {label}",
-            font=FONTS["body_bold"],
-            text_color=color,
-        ).pack(padx=16, pady=10)
-
-        # ─── Over-budget warning ─────────────────────────────
+        # ─── Over-budget & Predictive warning ────────────────
         if self.pct >= 100:
             overspend = self.spent - self.budget
-            warn_frame = ctk.CTkFrame(
-                inner,
-                fg_color=self.theme.get("danger_bg", "#2e0a0a"),
-                corner_radius=10,
-            )
-            warn_frame.pack(fill="x", pady=(10, 0))
-
-            ctk.CTkLabel(
-                warn_frame,
-                text=f"🚨  You've overspent by {CURRENCY_SYMBOL}{overspend:,.2f} this month!",
-                font=FONTS["body_bold"],
-                text_color=self.theme.get("danger", "#ff7675"),
-            ).pack(padx=16, pady=10)
+            warn_frame = ctk.CTkFrame(inner, fg_color=self.theme.get("danger_bg", "#2e0a0a"), corner_radius=10)
+            warn_frame.pack(fill="x", pady=(14, 0))
+            ctk.CTkLabel(warn_frame, text=f"🚨  You've overspent by {CURRENCY_SYMBOL}{overspend:,.2f} this month!", font=FONTS["body_bold"], text_color=self.theme.get("danger", "#ff7675")).pack(padx=16, pady=10)
+        elif self.will_exceed:
+            warn_frame = ctk.CTkFrame(inner, fg_color=self.theme.get("warning_bg", "#332b00"), corner_radius=10)
+            warn_frame.pack(fill="x", pady=(14, 0))
+            ctk.CTkLabel(warn_frame, text=f"⚡ At current pace, you will exceed your budget by {CURRENCY_SYMBOL}{self.predicted_total - self.budget:,.0f}!", font=FONTS["body_bold"], text_color=self.theme.get("warning", "#ffeaa7")).pack(padx=16, pady=10)
 
     def update_data(self, budget, spent):
         """Update budget data and rebuild the card."""
         self.budget = budget
         self.spent = spent
-        self.remaining = max(budget - spent, 0)
-        self.pct = (spent / budget * 100) if budget > 0 else 0
-
-        for widget in self.winfo_children():
-            widget.destroy()
+        self._calculate_metrics()
         self._build_ui()
 
 
@@ -570,17 +649,18 @@ class ModernInput(ctk.CTkFrame):
             self.input.insert(0, value)
 
 
-class BillGroupCard(ctk.CTkFrame):
+class ProjectGroupCard(ctk.CTkFrame):
     """
-    Shows a grouping of expenses (a Bill) as a compact, interactive card.
+    Shows a grouping of expenses (a Project) as a premium interactive card.
     Clicking the card opens a detailed popup view.
     """
 
-    def __init__(self, master, bill_data, theme=None, on_click=None, **kwargs):
+    def __init__(self, master, project_data, expenses=None, theme=None, on_click=None, **kwargs):
         self.theme = theme or {}
-        self.bill_data = bill_data
+        self.project_data = project_data
+        self.expenses = expenses or []
         self.on_click = on_click
-
+        
         bg = self.theme.get("card", "#1a1a2e")
         self.hover_bg = self.theme.get("card_hover", "#1f1f35")
         
@@ -591,7 +671,7 @@ class BillGroupCard(ctk.CTkFrame):
         
         # Bind click events
         if on_click:
-            self.bind("<Button-1>", lambda e: on_click(self.bill_data.get("id")))
+            self.bind("<Button-1>", lambda e: on_click())
             for child in self.winfo_children():
                 self._bind_click_recursive(child)
         
@@ -600,16 +680,16 @@ class BillGroupCard(ctk.CTkFrame):
         self.bind("<Leave>", lambda e: self.configure(fg_color=bg))
 
     def _bind_click_recursive(self, widget):
-        widget.bind("<Button-1>", lambda e: self.on_click(self.bill_data.get("id")))
+        widget.bind("<Button-1>", lambda e: self.on_click())
         for child in widget.winfo_children():
             self._bind_click_recursive(child)
 
     def _build_ui(self):
-        # ─── Bill Content ────────────────────────────────────
+        # ─── Project Content ────────────────────────────────────
         inner = ctk.CTkFrame(self, fg_color="transparent")
         inner.pack(fill="x", padx=24, pady=20)
 
-        # Left: Bill Icon + Name + Count
+        # Left: Project Icon + Name + Count
         left = ctk.CTkFrame(inner, fg_color="transparent")
         left.pack(side="left")
 
@@ -621,15 +701,13 @@ class BillGroupCard(ctk.CTkFrame):
         name_stack.pack(side="left")
 
         ctk.CTkLabel(
-            name_stack, text=self.bill_data.get("name", "Untitled Bill"),
+            name_stack, text=self.project_data.get("name", "Untitled Project"),
             font=FONTS["title"],
             text_color=self.theme.get("text", "#f0f0f5"),
             anchor="w"
         ).pack(anchor="w")
 
-        # Get count (passed in bill_data now or calculated externally)
-        # Assuming the summary query provides a count or we can add it
-        count = self.bill_data.get("count", 0)
+        count = self.project_data.get("count", len(self.expenses))
         ctk.CTkLabel(
             name_stack, text=f"{count} expenses grouped",
             font=FONTS["small"],
@@ -638,7 +716,7 @@ class BillGroupCard(ctk.CTkFrame):
         ).pack(anchor="w")
 
         # Right: Total Amount
-        total = self.bill_data.get("total", 0)
+        total = self.project_data.get("total", 0)
         ctk.CTkLabel(
             inner, text=f"{CURRENCY_SYMBOL}{total:,.2f}",
             font=FONTS["heading"],
@@ -647,21 +725,23 @@ class BillGroupCard(ctk.CTkFrame):
         ).pack(side="right")
 
 
-class BillDetailPopup(ctk.CTkToplevel):
+class ProjectDetailPopup(ctk.CTkToplevel):
     """
-    A modal popup showing all individual expenses linked to a bill.
+    A modal popup showing project summary, category breakdown, and individual expenses.
     """
 
-    def __init__(self, master, bill_id, db, theme, on_delete_expense=None):
+    def __init__(self, master, project_id, project_name, db, theme, expenses=None, on_delete_expense=None):
         super().__init__(master)
         self.db = db
         self.theme = theme
-        self.bill_id = bill_id
+        self.project_id = project_id
+        self.project_name = project_name
+        self.expenses = expenses or []
         self.on_delete_expense = on_delete_expense
         
         # Window setup
-        self.title("Bill Details")
-        self.geometry("650x700")
+        self.title("Project Details")
+        self.geometry("700x800")
         self.transient(master)  # Keep on top of parent
         self.grab_set()         # Modal
         self.configure(fg_color=self.theme.get("bg", "#0b0b10"))
@@ -670,17 +750,10 @@ class BillDetailPopup(ctk.CTkToplevel):
         self._build_ui()
 
     def _load_data(self):
-        """Fetch bill name and expenses."""
-        # Find bill name in current bills
-        bills = self.db.get_all_bills()
-        self.bill_name = "Bill Details"
-        for b in bills:
-            if b["id"] == self.bill_id:
-                self.bill_name = b["name"]
-                break
-        
-        self.expenses = self.db.get_expenses_by_bill(self.bill_id)
+        """Fetch project expenses and category breakdown."""
+        self.expenses = self.db.get_expenses_by_bill(self.project_id)
         self.total = sum(e["amount"] for e in self.expenses)
+        self.category_breakdown = self.db.get_project_category_breakdown(self.project_id)
 
     def _build_ui(self):
         # ─── Header ──────────────────────────────────────────
@@ -694,20 +767,20 @@ class BillDetailPopup(ctk.CTkToplevel):
         title_frame.pack(side="left", fill="both")
 
         ctk.CTkLabel(
-            title_frame, text=self.bill_name,
+            title_frame, text=self.project_name,
             font=FONTS["heading"],
             text_color=self.theme.get("text", "#f0f0f5"),
             anchor="w"
         ).pack(anchor="w")
 
         ctk.CTkLabel(
-            title_frame, text=f"Total: {CURRENCY_SYMBOL}{self.total:,.2f}  •  {len(self.expenses)} items",
+            title_frame, text=f"Total Project Spending: {CURRENCY_SYMBOL}{self.total:,.2f}",
             font=FONTS["body_bold"],
             text_color=self.theme.get("accent", "#6c5ce7"),
             anchor="w"
         ).pack(anchor="w")
 
-        # ─── Expense List ────────────────────────────────────
+        # Main Scrollable Area
         scroll = ctk.CTkScrollableFrame(
             self, fg_color="transparent",
             scrollbar_button_color=self.theme.get("scrollbar", "#2a2a3e"),
@@ -716,16 +789,36 @@ class BillDetailPopup(ctk.CTkToplevel):
 
         if not self.expenses:
             ctk.CTkLabel(
-                scroll, text="No expenses in this bill.",
+                scroll, text="No expenses in this project yet.",
                 font=FONTS["body"], text_color=self.theme.get("text_muted", "#808098")
             ).pack(pady=40)
-        else:
-            for exp in self.expenses:
-                card = ExpenseCard(
-                    scroll, exp, theme=self.theme, 
-                    on_delete=self._handle_delete
-                )
-                card.pack(fill="x", pady=6, padx=10)
+            return
+
+        # ─── Category Breakdown ────────────────────────────────
+        breakdown_frame = ctk.CTkFrame(scroll, fg_color=self.theme.get("card", "#1a1a2e"), corner_radius=12)
+        breakdown_frame.pack(fill="x", pady=(0, 20), padx=10)
+        
+        ctk.CTkLabel(breakdown_frame, text="Category Breakdown", font=FONTS["subheading"], 
+                     text_color=self.theme.get("text", "#f0f0f5")).pack(anchor="w", padx=20, pady=(15, 10))
+
+        for cat in self.category_breakdown:
+            row = ctk.CTkFrame(breakdown_frame, fg_color="transparent")
+            row.pack(fill="x", padx=20, pady=5)
+            # Use CategoryBadge for visual
+            CategoryBadge(row, category=cat["category"], theme=self.theme, db=self.db).pack(side="left")
+            ctk.CTkLabel(row, text=f"{CURRENCY_SYMBOL}{cat['total']:,.2f}", 
+                         font=FONTS["body_bold"], text_color=self.theme.get("text", "#f0f0f5")).pack(side="right")
+
+        # ─── Expense List ────────────────────────────────────
+        ctk.CTkLabel(scroll, text="All Expenses", font=FONTS["subheading"], 
+                     text_color=self.theme.get("text_secondary", "#b0b0c0")).pack(anchor="w", padx=10, pady=(10, 10))
+
+        for exp in self.expenses:
+            card = ExpenseCard(
+                scroll, exp, theme=self.theme, 
+                on_delete=self._handle_delete
+            )
+            card.pack(fill="x", pady=6, padx=10)
 
         # ─── Footer ──────────────────────────────────────────
         close_btn = ctk.CTkButton(

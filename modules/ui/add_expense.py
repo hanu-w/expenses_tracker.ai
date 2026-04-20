@@ -17,20 +17,23 @@ class AddExpenseView(ctk.CTkFrame):
     """Modern add expense form with validation, bill support, and custom categories."""
 
     def __init__(self, master, db, theme, on_expense_added=None,
-                 active_bill_id=None, active_bill_name=None,
+                 active_project_id=None, active_project_name=None,
                  on_start_session=None, on_finish_session=None, **kwargs):
         self.db = db
         self.theme = theme
         self.on_expense_added = on_expense_added
 
         # Session State
-        self.active_bill_id = active_bill_id
-        self.active_bill_name = active_bill_name
+        self.active_project_id = active_project_id
+        self.active_project_name = active_project_name
         self.on_start_session = on_start_session
         self.on_finish_session = on_finish_session
 
         # Track last valid category selection (plain name)
         self._last_category = ""
+        
+        # Prevent double-click spam
+        self.is_processing = False
 
         super().__init__(master, fg_color="transparent", **kwargs)
         self._build_ui()
@@ -102,8 +105,8 @@ class AddExpenseView(ctk.CTkFrame):
         )
         self.date_input.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
 
-        # Bill session section
-        self._build_bill_section(form)
+        # Project session section
+        self._build_project_section(form)
 
         # Note
         self.note_var = ctk.StringVar()
@@ -135,13 +138,13 @@ class AddExpenseView(ctk.CTkFrame):
             text_color="#ffffff",
             height=56,
             corner_radius=14,
-            command=self._on_add,
+            command=self.add_expense,
         )
         self.add_btn.pack(fill="x", pady=(0, 6))
 
         ctk.CTkLabel(
             content,
-            text="Tip: Use Bills to group related expenses into folder-like buckets",
+            text="Tip: Use Projects to group related expenses into folder-like buckets",
             font=FONTS["small"],
             text_color=self.theme.get("text_secondary", "#b0b0c0"),
         ).pack(pady=(14, 0))
@@ -149,9 +152,9 @@ class AddExpenseView(ctk.CTkFrame):
         self._build_budget_status(content)
 
         # Enter-key shortcuts
-        self.amount_input.input.bind("<Return>", lambda e: self._on_add())
-        self.note_input.input.bind("<Return>", lambda e: self._on_add())
-        self.date_input.input.bind("<Return>", lambda e: self._on_add())
+        self.amount_input.input.bind("<Return>", lambda e: self.add_expense())
+        self.note_input.input.bind("<Return>", lambda e: self.add_expense())
+        self.date_input.input.bind("<Return>", lambda e: self.add_expense())
 
     # ─── Category Selector ────────────────────────────────────────────────────
 
@@ -273,28 +276,28 @@ class AddExpenseView(ctk.CTkFrame):
 
         self._show_success(f'Category "{name}" created!')
 
-    # ─── Bill / Grouping Section ─────────────────────────────────────────────
+    # ─── Project / Session Section ───────────────────────────────────────────
 
-    def _build_bill_section(self, parent):
-        """Build the session-based bill grouping UI."""
-        self.bill_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        self.bill_frame.pack(fill="x", pady=(0, 20))
+    def _build_project_section(self, parent):
+        """Build the session-based project grouping UI. Hidden if active because global header handles it."""
+        if self.active_project_id:
+            return  # The global app banner handles the active state visualization
+            
+        self.project_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        self.project_frame.pack(fill="x", pady=(0, 20))
 
         ctk.CTkLabel(
-            self.bill_frame, text="Bill / Grouping",
+            self.project_frame, text="Project / Grouping",
             font=FONTS["subheading"],
             text_color=self.theme.get("text", "#f0f0f5"),
             anchor="w",
         ).pack(fill="x", pady=(0, 8))
 
-        if self.active_bill_id:
-            self._build_active_session_ui()
-        else:
-            self._build_normal_mode_ui()
+        self._build_normal_mode_ui()
 
     def _build_normal_mode_ui(self):
         container = ctk.CTkFrame(
-            self.bill_frame,
+            self.project_frame,
             fg_color=self.theme.get("surface", "#12121a"),
             corner_radius=12, border_width=1,
             border_color=self.theme.get("border", "#2a2a3e"),
@@ -303,44 +306,21 @@ class AddExpenseView(ctk.CTkFrame):
         inner = ctk.CTkFrame(container, fg_color="transparent")
         inner.pack(fill="x", padx=20, pady=15)
         ctk.CTkLabel(
-            inner, text="No active bill session.",
+            inner, text="No active project session.",
             font=FONTS["body"],
             text_color=self.theme.get("text_secondary", "#b0b0c0"),
         ).pack(side="left")
         ctk.CTkButton(
-            inner, text="Start New Bill",
+            inner, text="Start New Project",
             font=FONTS["small_bold"], width=140, height=36,
             fg_color=self.theme.get("accent", "#6c5ce7"),
             hover_color=self.theme.get("accent_hover", "#7d6ff0"),
             command=self._on_click_start_session,
         ).pack(side="right")
 
-    def _build_active_session_ui(self):
-        container = ctk.CTkFrame(
-            self.bill_frame,
-            fg_color=self.theme.get("success_bg", "#0a2e2d"),
-            corner_radius=12, border_width=1,
-            border_color=self.theme.get("success", "#00cec9"),
-        )
-        container.pack(fill="x")
-        inner = ctk.CTkFrame(container, fg_color="transparent")
-        inner.pack(fill="x", padx=20, pady=15)
-        ctk.CTkLabel(
-            inner, text=f"📂  Currently adding to: {self.active_bill_name}",
-            font=FONTS["body_bold"],
-            text_color=self.theme.get("success", "#00cec9"),
-        ).pack(side="left")
-        ctk.CTkButton(
-            inner, text="Finish Bill",
-            font=FONTS["small_bold"], width=120, height=36,
-            fg_color=self.theme.get("accent", "#6c5ce7"),
-            hover_color=self.theme.get("accent_hover", "#7d6ff0"),
-            command=self.on_finish_session,
-        ).pack(side="right")
-
     def _on_click_start_session(self):
         dialog = ctk.CTkInputDialog(
-            text="Enter Bill Name (e.g., 'Swiggy Order'):", title="Start New Bill"
+            text="Enter Project Name (e.g., 'Trip to Bali'):", title="Start New Project"
         )
         name = dialog.get_input()
         if name and name.strip():
@@ -349,33 +329,72 @@ class AddExpenseView(ctk.CTkFrame):
 
     # ─── Add Expense Logic ────────────────────────────────────────────────────
 
-    def _on_add(self):
-        """Validate and persist the expense."""
-        amount = Expense.validate_amount(self.amount_var.get())
-        if amount is None:
-            self._show_error("Please enter a valid amount")
+    def add_expense(self):
+        """Validate and persist the expense with robust error handling."""
+        if self.is_processing:
             return
+            
+        print("[DEBUG] 'Add Expense' button clicked")
+        
+        self.is_processing = True
+        self.add_btn.configure(state="disabled")
+        
+        try:
+            raw_amount = self.amount_var.get()
+            category = self.category_var.get()
+            raw_date = self.date_var.get()
+            note = self.note_var.get().strip()
+            
+            print(f"[DEBUG] values of amount: {raw_amount}, category: {category}, date: {raw_date}, note: {note}")
+            
+            # Validation
+            if not raw_amount:
+                self._show_error("Amount cannot be empty.")
+                return
+                
+            try:
+                amount = float(raw_amount)
+            except ValueError:
+                self._show_error("Amount must be a numeric value.")
+                return
+                
+            if amount <= 0:
+                self._show_error("Amount must be greater than 0.")
+                return
 
-        date = Expense.validate_date(self.date_var.get())
-        if date is None:
-            self._show_error("Invalid date. Use YYYY-MM-DD")
-            return
+            date = Expense.validate_date(raw_date)
+            if date is None:
+                self._show_error("Invalid date. Please use YYYY-MM-DD.")
+                return
+                
+            if not category or category == "\uff0b Add Category":
+                self._show_error("Please select a valid category.")
+                return
 
-        category = self.category_var.get()  # plain name from dropdown
-        note = self.note_var.get().strip()
-        bill_id = self.active_bill_id
+            project_id = self.active_project_id
+            
+            self.db.add_expense(float(amount), category, date, note, project_id)
+            
+            if project_id:
+                self._show_success(f"Added to Project: {self.active_project_name}")
+            else:
+                self._show_success("Expense added successfully")
 
-        self.db.add_expense(amount, category, date, note, bill_id)
-        self._show_success(f"Added {CURRENCY_SYMBOL}{amount:,.2f} for {category}")
+            # Reset form
+            self.amount_var.set("")
+            self.note_var.set("")
+            self.date_var.set(datetime.now().strftime(DATE_FORMAT))
+            self.amount_input.input.focus()
 
-        # Reset form
-        self.amount_var.set("")
-        self.note_var.set("")
-        self.date_var.set(datetime.now().strftime(DATE_FORMAT))
-        self.amount_input.input.focus()
-
-        if self.on_expense_added:
-            self.on_expense_added()
+            if self.on_expense_added:
+                self.on_expense_added()
+                
+        except Exception as e:
+            print(f"[ERROR] Failed to add expense: {str(e)}")
+            self._show_error(f"Internal error: {str(e)}")
+        finally:
+            self.is_processing = False
+            self.add_btn.configure(state="normal")
 
     # ─── Budget Status ────────────────────────────────────────────────────────
 

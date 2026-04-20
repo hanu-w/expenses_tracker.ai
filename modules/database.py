@@ -130,8 +130,18 @@ class ExpenseDB:
 
     # ─── Filtered Queries ─────────────────────────────────────
 
-    def get_expenses_filtered(self, category=None, start_date=None, end_date=None, search=None, limit=None, offset=None):
-        """Get expenses with optional filters."""
+    def get_large_expense_threshold(self):
+        """Get the 90th percentile of all amounts to highlight large expenses."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT amount FROM expenses ORDER BY amount ASC")
+        rows = cursor.fetchall()
+        if not rows: return 0
+        idx = int(len(rows) * 0.9)
+        if idx >= len(rows): idx = len(rows) - 1
+        return rows[idx]["amount"]
+
+    def get_expenses_filtered(self, category=None, start_date=None, end_date=None, search=None, sort_by=None, limit=None, offset=None):
+        """Get expenses with optional filters and sorting."""
         query = "SELECT * FROM expenses WHERE 1=1"
         params = []
 
@@ -151,7 +161,14 @@ class ExpenseDB:
             query += " AND (note LIKE ? OR category LIKE ?)"
             params.extend([f"%{search}%", f"%{search}%"])
 
-        query += " ORDER BY date DESC, id DESC"
+        if sort_by == "date_asc":
+            query += " ORDER BY date ASC, id ASC"
+        elif sort_by == "amount_desc":
+            query += " ORDER BY amount DESC, date DESC"
+        elif sort_by == "amount_asc":
+            query += " ORDER BY amount ASC, date DESC"
+        else:
+            query += " ORDER BY date DESC, id DESC"
 
         if limit:
             query += f" LIMIT {limit}"
@@ -243,6 +260,18 @@ class ExpenseDB:
         self._query_cache["category_breakdown"] = res
         return res
 
+    def get_project_category_breakdown(self, project_id):
+        """Get spending breakdown by category for a specific project/bill."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT category, COALESCE(SUM(amount), 0) as total
+            FROM expenses
+            WHERE bill_id = ?
+            GROUP BY category
+            ORDER BY total DESC
+        """, (project_id,))
+        return [dict(row) for row in cursor.fetchall()]
+
     def get_monthly_breakdown(self, months=6):
         """Get monthly spending for the last N months."""
         today = datetime.now()
@@ -270,6 +299,32 @@ class ExpenseDB:
 
         return results
 
+    def get_last_week_total(self):
+        """Get total expenses for the *previous* week (Mon–Sun)."""
+        today = datetime.now()
+        start_of_this_week = today - timedelta(days=today.weekday())
+        end_of_last_week   = start_of_this_week - timedelta(days=1)
+        start_of_last_week = end_of_last_week - timedelta(days=6)
+
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE date >= ? AND date <= ?",
+            (start_of_last_week.strftime(DATE_FORMAT), end_of_last_week.strftime(DATE_FORMAT)),
+        )
+        return cursor.fetchone()["total"]
+
+    def get_highest_weekly_expense(self):
+        """Return the single highest expense this week as a dict, or None."""
+        today = datetime.now()
+        start_of_week = today - timedelta(days=today.weekday())
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM expenses WHERE date >= ? AND date <= ? ORDER BY amount DESC LIMIT 1",
+            (start_of_week.strftime(DATE_FORMAT), today.strftime(DATE_FORMAT)),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
     def get_weekly_trend(self, weeks=8):
         """Get weekly spending trend for last N weeks."""
         today = datetime.now()
@@ -293,6 +348,67 @@ class ExpenseDB:
             results.append({"week": week_label, "total": total, "start": start_str, "end": end_str})
 
         return results
+
+    def get_peak_spending_day(self):
+        """Return the date with the highest single-day total as {'date': str, 'total': float}."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT date, COALESCE(SUM(amount), 0) as total
+            FROM expenses
+            GROUP BY date
+            ORDER BY total DESC
+            LIMIT 1
+        """)
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def get_weekend_vs_weekday_avg(self):
+        """
+        Return {'weekend_avg': float, 'weekday_avg': float} — average daily spend
+        on weekends (Sat/Sun) vs weekdays (Mon–Fri).
+        SQLite strftime('%w', date): 0=Sun, 6=Sat.
+        """
+        cursor = self.conn.cursor()
+
+        # Weekend daily totals (day_of_week 0 or 6)
+        cursor.execute("""
+            SELECT date, SUM(amount) as day_total
+            FROM expenses
+            WHERE strftime('%w', date) IN ('0', '6')
+            GROUP BY date
+        """)
+        weekend_days = cursor.fetchall()
+        weekend_avg = (
+            sum(r["day_total"] for r in weekend_days) / len(weekend_days)
+            if weekend_days else 0.0
+        )
+
+        # Weekday daily totals (day_of_week 1–5)
+        cursor.execute("""
+            SELECT date, SUM(amount) as day_total
+            FROM expenses
+            WHERE strftime('%w', date) NOT IN ('0', '6')
+            GROUP BY date
+        """)
+        weekday_days = cursor.fetchall()
+        weekday_avg = (
+            sum(r["day_total"] for r in weekday_days) / len(weekday_days)
+            if weekday_days else 0.0
+        )
+
+        return {
+            "weekend_avg": weekend_avg,
+            "weekday_avg": weekday_avg,
+            "weekend_days": len(weekend_days),
+            "weekday_days": len(weekday_days),
+        }
+
+    def get_largest_expense(self):
+        """Return the single all-time largest expense row as a dict, or None."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM expenses ORDER BY amount DESC LIMIT 1")
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
     def get_recent_expenses(self, limit=5):
         """Get the most recent N expenses."""
@@ -442,11 +558,13 @@ class ExpenseDB:
 
     def export_to_csv(self, filepath):
         """Export all expenses to a CSV file."""
+        from config import APP_VERSION
         expenses = self.get_all_expenses()
         if not expenses:
             return False
 
         with open(filepath, "w", newline="", encoding="utf-8") as f:
+            f.write(f"# ExpenseAI v{APP_VERSION} — Data Export\n")
             writer = csv.DictWriter(f, fieldnames=["id", "amount", "category", "date", "note", "created_at"])
             writer.writeheader()
             writer.writerows(expenses)
@@ -473,58 +591,62 @@ class ExpenseDB:
         
         try:
             with open(filepath, "r", newline="", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    import_results["total"] += 1
-                    
-                    # 0. Lowercase all keys for case-insensitive lookup
-                    clean_row = {k.lower().strip(): v for k, v in row.items()}
-                    
-                    try:
-                        # 1. Validate Amount
-                        amount_raw = clean_row.get("amount", "0")
-                        amount = float(amount_raw)
-                        if amount <= 0:
-                            raise ValueError("Amount must be positive")
+                # Skip comment lines (e.g. version metadata header)
+                lines = [line for line in f if not line.startswith("#")]
+            
+            import io
+            reader = csv.DictReader(io.StringIO("".join(lines)))
+            for row in reader:
+                import_results["total"] += 1
+                
+                # 0. Lowercase all keys for case-insensitive lookup
+                clean_row = {k.lower().strip(): v for k, v in row.items()}
+                
+                try:
+                    # 1. Validate Amount
+                    amount_raw = clean_row.get("amount", "0")
+                    amount = float(amount_raw)
+                    if amount <= 0:
+                        raise ValueError("Amount must be positive")
 
-                        # 2. Validate Category
-                        category = clean_row.get("category", "").strip()
+                    # 2. Validate Category
+                    category = clean_row.get("category", "").strip()
+                    if category not in CATEGORIES:
+                        # Map to 'Other' if it's non-empty but unknown
+                        category = category if category else "Other"
                         if category not in CATEGORIES:
-                            # Map to 'Other' if it's non-empty but unknown
-                            category = category if category else "Other"
-                            if category not in CATEGORIES:
-                                category = "Other"
+                            category = "Other"
 
-                        # 3. Validate Date
-                        date_raw = clean_row.get("date", "").strip()
-                        if not date_raw:
-                            raise ValueError("Date missing")
-                            
-                        parsed_date = self._parse_date(date_raw)
-                        if not parsed_date:
-                            raise ValueError(f"Unsupported date format: {date_raw}")
+                    # 3. Validate Date
+                    date_raw = clean_row.get("date", "").strip()
+                    if not date_raw:
+                        raise ValueError("Date missing")
                         
-                        # 4. Note (Consolidate note, payment_mode, month)
-                        note_parts = []
-                        main_note = clean_row.get("note", "").strip()
-                        if main_note: note_parts.append(main_note)
-                        
-                        payment = clean_row.get("payment_mode", "").strip()
-                        if payment: note_parts.append(f"via {payment}")
-                        
-                        month_context = clean_row.get("month", "").strip()
-                        if month_context: note_parts.append(f"({month_context})")
-                        
-                        final_note = " ".join(note_parts)
+                    parsed_date = self._parse_date(date_raw)
+                    if not parsed_date:
+                        raise ValueError(f"Unsupported date format: {date_raw}")
+                    
+                    # 4. Note (Consolidate note, payment_mode, month)
+                    note_parts = []
+                    main_note = clean_row.get("note", "").strip()
+                    if main_note: note_parts.append(main_note)
+                    
+                    payment = clean_row.get("payment_mode", "").strip()
+                    if payment: note_parts.append(f"via {payment}")
+                    
+                    month_context = clean_row.get("month", "").strip()
+                    if month_context: note_parts.append(f"({month_context})")
+                    
+                    final_note = " ".join(note_parts)
 
-                        # Insert
-                        self.add_expense(amount, category, parsed_date, final_note)
-                        import_results["success"] += 1
+                    # Insert
+                    self.add_expense(amount, category, parsed_date, final_note)
+                    import_results["success"] += 1
 
-                    except (ValueError, TypeError):
-                        import_results["skipped"] += 1
-                        continue
-                        
+                except (ValueError, TypeError):
+                    import_results["skipped"] += 1
+                    continue
+                    
         except Exception:
             return {"success": 0, "total": 0, "skipped": 0, "error": True}
 
