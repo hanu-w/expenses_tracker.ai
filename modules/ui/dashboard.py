@@ -33,12 +33,15 @@ def _blend(fg: str, bg: str, alpha: float) -> str:
 class DashboardView(ctk.CTkFrame):
     """Dashboard view with financial overview."""
 
-    def __init__(self, master, db, theme, app_mode="dark", on_navigate=None, **kwargs):
+    def __init__(self, master, db, theme, app_mode="dark", on_navigate=None, ai_service=None, **kwargs):
         self.db          = db
         self.theme       = theme
         self.app_mode    = app_mode
         self.on_navigate = on_navigate
+        self.ai          = ai_service
         self._data_fingerprint = None
+        self._ai_loading = False
+        self._last_ai_refresh = 0
 
         super().__init__(master, fg_color="transparent", **kwargs)
         self._build_ui()
@@ -124,6 +127,9 @@ class DashboardView(ctk.CTkFrame):
             BudgetTrackerCard(
                 content, budget=budget, spent=monthly, theme=self.theme,
             ).pack(fill="x", padx=28, pady=(16, 0))
+
+            # ─── AI Budget Advisor ────────────────────────────
+            self._build_budget_advisor(content)
         else:
             hint_frame = ctk.CTkFrame(
                 content,
@@ -156,6 +162,12 @@ class DashboardView(ctk.CTkFrame):
         # ─── Suggestions ────────────────────────────────────
         self._build_section_header(content, "💡  Suggestions", pady_top=20)
         self._build_suggestions(content, budget)
+
+        # ═══════════════════════════════════════════════════════════════════════
+        #   AI INSIGHTS
+        # ═══════════════════════════════════════════════════════════════════════
+        self._build_section_header(content, "🤖  AI Insights", pady_top=24)
+        self._build_ai_insights(content)
 
         # ═══════════════════════════════════════════════════════════════════════
         #   CHARTS
@@ -527,6 +539,276 @@ class DashboardView(ctk.CTkFrame):
                 text_color=self.theme.get("text", "#f0f0f5"),
                 anchor="w", wraplength=900, justify="left",
             ).pack(side="left", fill="x", expand=True)
+
+    # ─── AI Insights ─────────────────────────────────────────────────────────
+
+    def _build_ai_insights(self, parent):
+        """Build the AI Insights panel with loading state and async fetch."""
+        import time as _time
+
+        # Container for AI insights content (will be replaced when data arrives)
+        self._ai_container = ctk.CTkFrame(parent, fg_color="transparent")
+        self._ai_container.pack(fill="x", padx=28)
+
+        # Show loading state
+        self._show_ai_loading()
+
+        # Fetch insights asynchronously
+        if self.ai:
+            def _on_result(data):
+                # Schedule UI update on main thread
+                try:
+                    if self.winfo_exists():
+                        self.after(0, lambda: self._render_ai_insights(data))
+                except Exception:
+                    pass
+
+            def _on_error(msg):
+                try:
+                    if self.winfo_exists():
+                        self.after(0, lambda: self._render_ai_error(msg))
+                except Exception:
+                    pass
+
+            self.ai.get_smart_insights(
+                self.db,
+                on_result=_on_result,
+                on_error=_on_error,
+            )
+
+    def _show_ai_loading(self):
+        """Show a styled loading skeleton for AI insights."""
+        for w in self._ai_container.winfo_children():
+            w.destroy()
+
+        loading_card = ctk.CTkFrame(
+            self._ai_container,
+            fg_color=self.theme.get("card", "#1a1a2e"),
+            corner_radius=14, border_width=1,
+            border_color=self.theme.get("border", "#2a2a3e"),
+        )
+        loading_card.pack(fill="x", pady=(0, 8))
+
+        inner = ctk.CTkFrame(loading_card, fg_color="transparent")
+        inner.pack(fill="x", padx=20, pady=16)
+
+        self._loading_label = ctk.CTkLabel(
+            inner,
+            text="✨  Analyzing your spending patterns",
+            font=FONTS["body"],
+            text_color=self.theme.get("text_secondary", "#b0b0c0"),
+            anchor="w",
+        )
+        self._loading_label.pack(anchor="w")
+
+        # Animated dots
+        self._dots_count = 0
+        self._animate_dots()
+
+    def _animate_dots(self):
+        """Animate the loading dots."""
+        try:
+            if not self.winfo_exists():
+                return
+            if not hasattr(self, "_loading_label") or not self._loading_label.winfo_exists():
+                return
+            dots = "." * (self._dots_count % 4)
+            self._loading_label.configure(text=f"✨  Analyzing your spending patterns{dots}")
+            self._dots_count += 1
+            self.after(500, self._animate_dots)
+        except Exception:
+            pass
+
+    def _render_ai_insights(self, data):
+        """Render the AI insights once data arrives."""
+        if not self.winfo_exists():
+            return
+        try:
+            for w in self._ai_container.winfo_children():
+                w.destroy()
+        except Exception:
+            return
+
+        insights = data.get("insights", [])
+        suggestion = data.get("suggestion", "")
+        source = data.get("source", "rule")
+
+        # Source badge color
+        if source == "ai":
+            badge_text = "✨ Powered by Gemini"
+            badge_color = "#a29bfe"
+        elif source == "cache":
+            badge_text = "⚡ Cached Insight"
+            badge_color = "#00cec9"
+        else:
+            badge_text = "📊 Rule-Based"
+            badge_color = "#778ca3"
+
+        # Header row with source badge and refresh button
+        header_row = ctk.CTkFrame(self._ai_container, fg_color="transparent")
+        header_row.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            header_row, text=badge_text,
+            font=FONTS["small_bold"],
+            text_color=badge_color, anchor="w",
+        ).pack(side="left")
+
+        # Refresh button (rate-limited)
+        import time as _time
+        can_refresh = (_time.time() - self._last_ai_refresh) > 300  # 5 min cooldown
+
+        refresh_btn = ctk.CTkButton(
+            header_row, text="🔄 Refresh",
+            font=FONTS["small"], width=90, height=28,
+            corner_radius=8,
+            fg_color=self.theme.get("surface", "#12121a"),
+            hover_color=self.theme.get("card_hover", "#1f1f35"),
+            border_width=1,
+            border_color=self.theme.get("border", "#2a2a3e"),
+            text_color=self.theme.get("text_secondary", "#b0b0c0") if can_refresh
+                       else self.theme.get("text_muted", "#808098"),
+            state="normal" if can_refresh else "disabled",
+            command=self._refresh_ai_insights,
+        )
+        refresh_btn.pack(side="right")
+
+        # Insight colors for visual variety
+        accent_colors = ["#a29bfe", "#00cec9", "#fd79a8", "#fdcb6e"]
+
+        # Render insight cards
+        for idx, text in enumerate(insights[:3]):
+            accent = accent_colors[idx % len(accent_colors)]
+            card = ctk.CTkFrame(
+                self._ai_container,
+                fg_color=_blend(accent, self.theme.get("card", "#1a1a2e"), 0.08),
+                corner_radius=12, border_width=1,
+                border_color=_blend(accent, "#000000", 0.25),
+            )
+            card.pack(fill="x", pady=(0, 6))
+
+            row = ctk.CTkFrame(card, fg_color="transparent")
+            row.pack(fill="x", padx=20, pady=12)
+
+            # Accent dot
+            dot = ctk.CTkFrame(
+                row, width=8, height=8,
+                corner_radius=4, fg_color=accent,
+            )
+            dot.pack(side="left", padx=(0, 14), pady=2)
+
+            ctk.CTkLabel(
+                row, text=text,
+                font=FONTS["body"],
+                text_color=self.theme.get("text", "#f0f0f5"),
+                anchor="w", wraplength=900, justify="left",
+            ).pack(side="left", fill="x", expand=True)
+
+        # Suggestion card (distinct styling)
+        if suggestion:
+            sug_card = ctk.CTkFrame(
+                self._ai_container,
+                fg_color=_blend("#6c5ce7", self.theme.get("card", "#1a1a2e"), 0.10),
+                corner_radius=12, border_width=1,
+                border_color=_blend("#6c5ce7", "#000000", 0.30),
+            )
+            sug_card.pack(fill="x", pady=(4, 0))
+
+            sug_row = ctk.CTkFrame(sug_card, fg_color="transparent")
+            sug_row.pack(fill="x", padx=20, pady=12)
+
+            ctk.CTkLabel(
+                sug_row, text="💡",
+                font=("Segoe UI", 18),
+                text_color="#6c5ce7",
+            ).pack(side="left", padx=(0, 12))
+
+            ctk.CTkLabel(
+                sug_row, text=suggestion,
+                font=FONTS["body_bold"],
+                text_color=self.theme.get("text", "#f0f0f5"),
+                anchor="w", wraplength=880, justify="left",
+            ).pack(side="left", fill="x", expand=True)
+
+    def _render_ai_error(self, msg):
+        """Show a subtle error banner for AI issues."""
+        # The fallback data will arrive via _render_ai_insights, so this is just
+        # a transient notification — no action needed.
+        pass
+
+    def _refresh_ai_insights(self):
+        """Manually refresh AI insights (rate-limited)."""
+        import time as _time
+        if (_time.time() - self._last_ai_refresh) < 300:
+            return
+        self._last_ai_refresh = _time.time()
+
+        # Re-show loading and refetch
+        self._show_ai_loading()
+        if self.ai:
+            def _on_result(data):
+                try:
+                    if self.winfo_exists():
+                        self.after(0, lambda: self._render_ai_insights(data))
+                except Exception:
+                    pass
+
+            self.ai.get_smart_insights(
+                self.db,
+                on_result=_on_result,
+                force_refresh=True,
+            )
+
+    # ─── Budget Advisor ──────────────────────────────────────────────────────
+
+    def _build_budget_advisor(self, parent):
+        """Build a compact AI budget advice card."""
+        self._budget_advice_container = ctk.CTkFrame(parent, fg_color="transparent")
+        self._budget_advice_container.pack(fill="x", padx=28, pady=(10, 0))
+
+        # Show placeholder
+        card = ctk.CTkFrame(
+            self._budget_advice_container,
+            fg_color=_blend("#6c5ce7", self.theme.get("card", "#1a1a2e"), 0.06),
+            corner_radius=12, border_width=1,
+            border_color=self.theme.get("border", "#2a2a3e"),
+        )
+        card.pack(fill="x")
+
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=20, pady=14)
+
+        ctk.CTkLabel(
+            inner, text="🧠  Budget Advisor",
+            font=FONTS["small_bold"],
+            text_color="#a29bfe", anchor="w",
+        ).pack(anchor="w", pady=(0, 6))
+
+        self._budget_advice_label = ctk.CTkLabel(
+            inner, text="Loading advice...",
+            font=FONTS["body"],
+            text_color=self.theme.get("text_secondary", "#b0b0c0"),
+            anchor="w", wraplength=900, justify="left",
+        )
+        self._budget_advice_label.pack(anchor="w")
+
+        # Fetch async
+        if self.ai:
+            def _on_result(data):
+                try:
+                    if self.winfo_exists() and self._budget_advice_label.winfo_exists():
+                        advice = data.get("advice", "")
+                        if advice:
+                            self.after(0, lambda: self._budget_advice_label.configure(
+                                text=advice,
+                                text_color=self.theme.get("text", "#f0f0f5"),
+                            ))
+                        else:
+                            self.after(0, lambda: self._budget_advice_container.pack_forget())
+                except Exception:
+                    pass
+
+            self.ai.get_budget_advice(self.db, on_result=_on_result)
 
     # ─── Charts ──────────────────────────────────────────────────────────────
 

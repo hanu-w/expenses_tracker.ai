@@ -19,12 +19,14 @@ class SettingsView(ctk.CTkFrame):
     """Settings panel with theme, budget, export, and data management."""
 
     def __init__(self, master, db, theme, app_mode="dark",
-                 on_theme_change=None, on_data_changed=None, **kwargs):
+                 on_theme_change=None, on_data_changed=None,
+                 ai_service=None, **kwargs):
         self.db = db
         self.theme = theme
         self.app_mode = app_mode
         self.on_theme_change = on_theme_change
         self.on_data_changed = on_data_changed
+        self.ai = ai_service
 
         super().__init__(master, fg_color="transparent", **kwargs)
         self._build_ui()
@@ -186,6 +188,10 @@ class SettingsView(ctk.CTkFrame):
         )
         self.budget_msg.pack(fill="x", pady=(10, 0))
 
+        # ─── AI Integration Section ──────────────────────────
+        self._section_header(content, "🤖  AI Integration")
+        self._build_ai_section(content)
+
         # ─── Categories Section ─────────────────────────────
         self._section_header(content, "🏷️  Manage Categories")
         self._content_ref = content  # Save ref for later refresh
@@ -298,13 +304,14 @@ class SettingsView(ctk.CTkFrame):
             f"ExpenseAI v{APP_VERSION}",
             "Smart Expense Tracker — Built with Python",
             "",
-            "🚀 Major UI & Performance Upgrade",
+            "🚀 AI-Powered Expense Intelligence",
             "",
             "Tech Stack:",
             "• CustomTkinter (UI Framework)",
             "• Matplotlib (Charts)",
             "• SQLite (Database)",
             "• pandas (Data Processing)",
+            "• Google Gemini (AI Insights)",
         ]
 
         for line in info_lines:
@@ -489,6 +496,210 @@ class SettingsView(ctk.CTkFrame):
         for widget in self.winfo_children():
             widget.destroy()
         self._build_ui()
+
+    # ─── AI Integration Helpers ─────────────────────────────────
+
+    def _build_ai_section(self, parent):
+        """Build the AI integration settings card."""
+        ai_card = self._card(parent)
+        ai_inner = ctk.CTkFrame(ai_card, fg_color="transparent")
+        ai_inner.pack(fill="x", padx=24, pady=20)
+
+        ctk.CTkLabel(
+            ai_inner,
+            text="Connect to Google Gemini for AI-powered insights, natural language input, and budget advice",
+            font=FONTS["body"],
+            text_color=self.theme.get("text_secondary", "#b0b0c0"), anchor="w",
+            wraplength=700, justify="left",
+        ).pack(fill="x", pady=(0, 16))
+
+        # API Key input row
+        key_label_row = ctk.CTkFrame(ai_inner, fg_color="transparent")
+        key_label_row.pack(fill="x", pady=(0, 6))
+
+        ctk.CTkLabel(
+            key_label_row, text="Gemini API Key",
+            font=FONTS["body_bold"],
+            text_color=self.theme.get("text", "#f0f0f5"), anchor="w",
+        ).pack(side="left")
+
+        # Get link
+        ctk.CTkLabel(
+            key_label_row,
+            text="Get one at aistudio.google.com/apikey",
+            font=FONTS["small"],
+            text_color=self.theme.get("text_muted", "#808098"), anchor="w",
+        ).pack(side="left", padx=(12, 0))
+
+        key_row = ctk.CTkFrame(ai_inner, fg_color="transparent")
+        key_row.pack(fill="x", pady=(0, 12))
+
+        # Determine current key status
+        current_key = ""
+        if self.ai:
+            current_key = self.ai._load_api_key()
+
+        self.api_key_var = ctk.StringVar(value=current_key)
+        self.api_key_entry = ctk.CTkEntry(
+            key_row, textvariable=self.api_key_var,
+            placeholder_text="Paste your API key here",
+            show="•",
+            font=FONTS["body"], width=400, height=42, corner_radius=10,
+            fg_color=self.theme.get("input_bg", "#16162a"),
+            border_color=self.theme.get("input_border", "#2a2a40"),
+            text_color=self.theme.get("text", "#f0f0f5"),
+            placeholder_text_color=self.theme.get("text_muted", "#808098"),
+        )
+        self.api_key_entry.pack(side="left", padx=(0, 10))
+
+        # Toggle visibility button
+        self._key_visible = False
+        self.toggle_vis_btn = ctk.CTkButton(
+            key_row, text="👁", font=("Segoe UI", 14),
+            width=42, height=42, corner_radius=10,
+            fg_color=self.theme.get("surface", "#12121a"),
+            hover_color=self.theme.get("card_hover", "#1f1f35"),
+            border_width=1,
+            border_color=self.theme.get("border", "#2a2a3e"),
+            text_color=self.theme.get("text_secondary", "#b0b0c0"),
+            command=self._toggle_key_visibility,
+        )
+        self.toggle_vis_btn.pack(side="left", padx=(0, 10))
+
+        # Save button
+        ctk.CTkButton(
+            key_row, text="Save", font=FONTS["button"],
+            fg_color=self.theme.get("accent", "#6c5ce7"),
+            hover_color=self.theme.get("accent_hover", "#7d6ff0"),
+            text_color="#ffffff", width=90, height=42, corner_radius=10,
+            command=self._on_save_api_key,
+        ).pack(side="left", padx=(0, 10))
+
+        # Clear button
+        ctk.CTkButton(
+            key_row, text="Clear", font=FONTS["button"],
+            fg_color=self.theme.get("surface", "#12121a"),
+            hover_color=self.theme.get("danger_bg", "#2e0a0a"),
+            border_color=self.theme.get("border", "#2a2a3e"), border_width=1,
+            text_color=self.theme.get("text", "#f0f0f5"),
+            width=90, height=42, corner_radius=10,
+            command=self._on_clear_api_key,
+        ).pack(side="left")
+
+        # Test connection row
+        test_row = ctk.CTkFrame(ai_inner, fg_color="transparent")
+        test_row.pack(fill="x", pady=(4, 0))
+
+        self.test_conn_btn = ctk.CTkButton(
+            test_row, text="🔌 Test Connection", font=FONTS["small_bold"],
+            fg_color=self.theme.get("surface", "#12121a"),
+            hover_color=self.theme.get("card_hover", "#1f1f35"),
+            border_width=1,
+            border_color=self.theme.get("border", "#2a2a3e"),
+            text_color=self.theme.get("text_secondary", "#b0b0c0"),
+            width=160, height=36, corner_radius=10,
+            command=self._on_test_connection,
+        )
+        self.test_conn_btn.pack(side="left")
+
+        # Status indicator
+        self.ai_status_label = ctk.CTkLabel(
+            test_row, text="", font=FONTS["body"],
+            text_color=self.theme.get("text_muted", "#808098"), anchor="w",
+        )
+        self.ai_status_label.pack(side="left", padx=(14, 0))
+
+        # Show initial status
+        if current_key:
+            self.ai_status_label.configure(
+                text="🔑 API key configured",
+                text_color=self.theme.get("success", "#00cec9"),
+            )
+        else:
+            self.ai_status_label.configure(
+                text="❌ No API key — AI features will use rule-based fallbacks",
+                text_color=self.theme.get("text_muted", "#808098"),
+            )
+
+    def _toggle_key_visibility(self):
+        """Toggle API key visibility."""
+        self._key_visible = not self._key_visible
+        self.api_key_entry.configure(show="" if self._key_visible else "•")
+        self.toggle_vis_btn.configure(text="🔒" if self._key_visible else "👁")
+
+    def _on_save_api_key(self):
+        """Save the API key to .env."""
+        key = self.api_key_var.get().strip()
+        if not key:
+            self.ai_status_label.configure(
+                text="❌ Please enter an API key",
+                text_color=self.theme.get("danger", "#ff7675"),
+            )
+            return
+
+        if self.ai:
+            success = self.ai.save_api_key(key)
+            if success:
+                self.ai_status_label.configure(
+                    text="✅ API key saved successfully",
+                    text_color=self.theme.get("success", "#00cec9"),
+                )
+            else:
+                self.ai_status_label.configure(
+                    text="❌ Failed to save API key",
+                    text_color=self.theme.get("danger", "#ff7675"),
+                )
+
+    def _on_clear_api_key(self):
+        """Clear the API key."""
+        if self.ai:
+            self.ai.clear_api_key()
+            self.ai.clear_cache()
+        self.api_key_var.set("")
+        self.ai_status_label.configure(
+            text="🗑️ API key removed — using rule-based fallbacks",
+            text_color=self.theme.get("text_muted", "#808098"),
+        )
+
+    def _on_test_connection(self):
+        """Test the Gemini API connection."""
+        key = self.api_key_var.get().strip()
+        if not key:
+            self.ai_status_label.configure(
+                text="❌ Save an API key first",
+                text_color=self.theme.get("danger", "#ff7675"),
+            )
+            return
+
+        self.test_conn_btn.configure(state="disabled", text="⏳ Testing...")
+        self.ai_status_label.configure(
+            text="Testing connection...",
+            text_color=self.theme.get("text_muted", "#808098"),
+        )
+
+        if self.ai:
+            def _on_result(success, message):
+                try:
+                    if self.winfo_exists():
+                        self.after(0, lambda: self._show_test_result(success, message))
+                except Exception:
+                    pass
+
+            self.ai.test_connection(on_result=_on_result)
+
+    def _show_test_result(self, success, message):
+        """Show the test connection result."""
+        self.test_conn_btn.configure(state="normal", text="🔌 Test Connection")
+        if success:
+            self.ai_status_label.configure(
+                text=f"✅ {message}",
+                text_color=self.theme.get("success", "#00cec9"),
+            )
+        else:
+            self.ai_status_label.configure(
+                text=f"❌ {message}",
+                text_color=self.theme.get("danger", "#ff7675"),
+            )
 
     # ─── Categories Helpers ────────────────────────────────────
 

@@ -18,10 +18,12 @@ class AddExpenseView(ctk.CTkFrame):
 
     def __init__(self, master, db, theme, on_expense_added=None,
                  active_project_id=None, active_project_name=None,
-                 on_start_session=None, on_finish_session=None, **kwargs):
+                 on_start_session=None, on_finish_session=None,
+                 ai_service=None, **kwargs):
         self.db = db
         self.theme = theme
         self.on_expense_added = on_expense_added
+        self.ai = ai_service
 
         # Session State
         self.active_project_id = active_project_id
@@ -34,6 +36,7 @@ class AddExpenseView(ctk.CTkFrame):
         
         # Prevent double-click spam
         self.is_processing = False
+        self._is_parsing = False
 
         super().__init__(master, fg_color="transparent", **kwargs)
         self._build_ui()
@@ -60,6 +63,9 @@ class AddExpenseView(ctk.CTkFrame):
             text_color=self.theme.get("text", "#f0f0f5"),
             anchor="w"
         ).pack(side="left")
+
+        # ─── Quick Add (Natural Language) ─────────────────────
+        self._build_quick_add(content)
 
         # ─── Main Form ───────────────────────────────────────
         form = ctk.CTkFrame(content, fg_color="transparent")
@@ -155,6 +161,150 @@ class AddExpenseView(ctk.CTkFrame):
         self.amount_input.input.bind("<Return>", lambda e: self.add_expense())
         self.note_input.input.bind("<Return>", lambda e: self.add_expense())
         self.date_input.input.bind("<Return>", lambda e: self.add_expense())
+
+    # ─── Quick Add (Natural Language) ─────────────────────────────────────────
+
+    def _build_quick_add(self, parent):
+        """Build the AI-powered Quick Add input bar."""
+        qa_frame = ctk.CTkFrame(
+            parent,
+            fg_color=self.theme.get("card", "#1a1a2e"),
+            corner_radius=14, border_width=1,
+            border_color=self.theme.get("border", "#2a2a3e"),
+        )
+        qa_frame.pack(fill="x", padx=28, pady=(10, 0))
+
+        inner = ctk.CTkFrame(qa_frame, fg_color="transparent")
+        inner.pack(fill="x", padx=20, pady=16)
+
+        # Title row
+        title_row = ctk.CTkFrame(inner, fg_color="transparent")
+        title_row.pack(fill="x", pady=(0, 10))
+
+        ctk.CTkLabel(
+            title_row, text="✨  Quick Add",
+            font=FONTS["body_bold"],
+            text_color=self.theme.get("text", "#f0f0f5"), anchor="w",
+        ).pack(side="left")
+
+        ctk.CTkLabel(
+            title_row, text="Type naturally, AI fills the form",
+            font=FONTS["small"],
+            text_color=self.theme.get("text_muted", "#808098"), anchor="w",
+        ).pack(side="left", padx=(12, 0))
+
+        # Input row
+        input_row = ctk.CTkFrame(inner, fg_color="transparent")
+        input_row.pack(fill="x")
+
+        self.quick_add_var = ctk.StringVar()
+        self.quick_add_entry = ctk.CTkEntry(
+            input_row,
+            textvariable=self.quick_add_var,
+            placeholder_text='e.g., "500 pizza yesterday" or "₹1200 uber ride"',
+            font=FONTS["body"], height=44, corner_radius=10,
+            fg_color=self.theme.get("input_bg", "#16162a"),
+            border_color=self.theme.get("input_border", "#2a2a40"),
+            text_color=self.theme.get("text", "#f0f0f5"),
+            placeholder_text_color=self.theme.get("text_muted", "#808098"),
+        )
+        self.quick_add_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        self.quick_add_entry.bind("<Return>", lambda e: self._parse_quick_add())
+
+        self.parse_btn = ctk.CTkButton(
+            input_row, text="⚡ Parse",
+            font=FONTS["small_bold"], width=100, height=44,
+            corner_radius=10,
+            fg_color=self.theme.get("accent", "#6c5ce7"),
+            hover_color=self.theme.get("accent_hover", "#7d6ff0"),
+            text_color="#ffffff",
+            command=self._parse_quick_add,
+        )
+        self.parse_btn.pack(side="right")
+
+        # Status line
+        self.quick_add_status = ctk.CTkLabel(
+            inner, text="", font=FONTS["small"],
+            text_color=self.theme.get("text_muted", "#808098"), anchor="w",
+        )
+        self.quick_add_status.pack(fill="x", pady=(8, 0))
+
+    def _parse_quick_add(self):
+        """Send the Quick Add text to AI for parsing."""
+        text = self.quick_add_var.get().strip()
+        if not text or self._is_parsing:
+            return
+
+        self._is_parsing = True
+        self.parse_btn.configure(state="disabled", text="⏳ ...")
+        self.quick_add_status.configure(
+            text="Parsing...",
+            text_color=self.theme.get("text_muted", "#808098"),
+        )
+
+        if self.ai:
+            def _on_result(data):
+                try:
+                    if self.winfo_exists():
+                        self.after(0, lambda: self._apply_parsed_result(data))
+                except Exception:
+                    pass
+
+            def _on_error(msg):
+                try:
+                    if self.winfo_exists():
+                        self.after(0, lambda: self.quick_add_status.configure(
+                            text=f"⚠️ {msg}",
+                            text_color=self.theme.get("warning", "#ffeaa7"),
+                        ))
+                except Exception:
+                    pass
+
+            self.ai.parse_natural_input(text, on_result=_on_result, on_error=_on_error)
+        else:
+            # No AI service — shouldn't happen, but handle gracefully
+            self._is_parsing = False
+            self.parse_btn.configure(state="normal", text="⚡ Parse")
+
+    def _apply_parsed_result(self, data):
+        """Apply the parsed AI result to the form fields."""
+        self._is_parsing = False
+        self.parse_btn.configure(state="normal", text="⚡ Parse")
+
+        amount = data.get("amount", 0)
+        category = data.get("category", "Other")
+        date = data.get("date", "")
+        note = data.get("note", "")
+        source = data.get("source", "rule")
+
+        if amount > 0:
+            self.amount_var.set(str(amount))
+
+        if date:
+            self.date_var.set(date)
+
+        if note:
+            self.note_var.set(note)
+
+        # Set category
+        all_cats = cm.get_all_categories(self.db)
+        if category in all_cats:
+            self.category_var.set(category)
+            self._on_category_selected(category)
+
+        # Status feedback
+        source_label = "AI" if source == "ai" else "keyword matching"
+        self.quick_add_status.configure(
+            text=f"✅ Parsed via {source_label} — review and submit below",
+            text_color=self.theme.get("success", "#00cec9"),
+        )
+        self.after(6000, lambda: self.quick_add_status.configure(text="") if self.quick_add_status.winfo_exists() else None)
+
+        # Clear Quick Add input
+        self.quick_add_var.set("")
+
+        # Focus the amount field for review
+        self.amount_input.input.focus()
 
     # ─── Category Selector ────────────────────────────────────────────────────
 

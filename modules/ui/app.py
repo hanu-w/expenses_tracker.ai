@@ -7,6 +7,7 @@ import customtkinter as ctk
 
 from config import WINDOW_WIDTH, WINDOW_HEIGHT, MIN_WIDTH, MIN_HEIGHT, SIDEBAR_WIDTH, APP_TITLE
 from modules.database import ExpenseDB
+from modules import ai_service
 from modules.theme import get_theme, FONTS
 from modules.ui.sidebar import Sidebar
 from modules.ui.dashboard import DashboardView
@@ -102,6 +103,7 @@ class ExpenseTrackerApp(ctk.CTk):
                 self.content_frame, db=self.db,
                 theme=self.theme, app_mode=self.app_mode,
                 on_navigate=self.switch_view,
+                ai_service=ai_service,
             )
         elif view_name == "add_expense":
             self.current_view = AddExpenseView(
@@ -113,6 +115,7 @@ class ExpenseTrackerApp(ctk.CTk):
                 active_project_name=self.active_project_name,
                 on_start_session=self.start_project_session,
                 on_finish_session=self.finish_project_session,
+                ai_service=ai_service,
             )
         elif view_name == "expense_list":
             self.current_view = ExpenseListView(
@@ -133,6 +136,7 @@ class ExpenseTrackerApp(ctk.CTk):
                 theme=self.theme, app_mode=self.app_mode,
                 on_theme_change=self._on_theme_change,
                 on_data_changed=self._on_data_changed,
+                ai_service=ai_service,
             )
 
         if self.current_view:
@@ -209,5 +213,6 @@ class ExpenseTrackerApp(ctk.CTk):
 
     def _on_close(self):
         """Clean up on window close."""
+        ai_service.clear_cache()
         self.db.close()
         self.destroy()

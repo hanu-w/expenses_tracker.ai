@@ -65,3 +65,8 @@ DEFAULT_BUDGET = 0  # 0 means no budget set
 # ─── Date Formats ─────────────────────────────────────────────
 DATE_FORMAT = "%Y-%m-%d"
 DISPLAY_DATE_FORMAT = "%d %b %Y"
+
+# ─── AI / Gemini ──────────────────────────────────────────────
+GEMINI_MODEL = "gemini-2.0-flash"
+AI_CACHE_TTL_INSIGHTS = 1800   # 30 minutes
+AI_CACHE_TTL_BUDGET = 300      # 5 minutes
